@@ -1,10 +1,15 @@
 package main
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 type Config struct {
-	Port      string
-	RedisAddr string
+	Port             string
+	RedisAddr        string
+	RateLimitCreate  int
+	RateLimitFetch   int
 }
 
 func loadConfig() Config {
@@ -19,7 +24,19 @@ func loadConfig() Config {
 	}
 
 	return Config{
-		Port:      port,
-		RedisAddr: redisAddr,
+		Port:            port,
+		RedisAddr:       redisAddr,
+		RateLimitCreate: envInt("RATE_LIMIT_CREATE", 30),
+		RateLimitFetch:  envInt("RATE_LIMIT_FETCH", 60),
 	}
+}
+
+// envInt reads an env var as an integer, returning def if absent or unparseable.
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
 }

@@ -6,15 +6,23 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"log/slog"
 	"net/http"
+	"time"
+)
+
+const (
+	minTTL     = 60 * time.Second
+	maxTTL     = 7 * 24 * time.Hour
+	defaultTTL = 24 * time.Hour
 )
 
 // Store is the minimal persistence interface handlers need.
-// memKeyStore and redisKeyStore in package main satisfy this implicitly.
+// storeAdapter in package main satisfies this implicitly.
 type Store interface {
-	Save(key []byte) (id string, err error)
-	Load(id string) (key []byte, err error)
+	Save(privPEM []byte, ttl time.Duration) (id string, err error)
+	Load(id string) (privPEM []byte, err error)
 }
 
 // Handlers holds dependencies for all HTTP handler methods.
@@ -34,17 +42,45 @@ type CreateKeyResponse struct {
 	PubPEM string `json:"pub_pem"`
 }
 
+type createKeyRequest struct {
+	TTL int `json:"ttl"` // seconds; 0 → defaultTTL
+}
+
 // CreateKey handles POST /api/keys.
 // Generates an RSA-4096 keypair, persists the private key, returns id + public key as JSON.
-// Note: RSA-4096 generation takes ~2-3s; this is expected and intentional.
+// Accepts an optional JSON body {"ttl": <seconds>}. Defaults to 24h if absent.
+// Returns 400 {"error":"invalid_ttl"} if the TTL is outside [60s, 7d].
 func (h *Handlers) CreateKey(w http.ResponseWriter, r *http.Request) {
+	var req createKeyRequest
+	// Ignore EOF (empty body) — zero value applies the default TTL.
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		// Any other decode error (malformed JSON, etc.) falls through;
+		// req.TTL remains 0 and defaults to defaultTTL below.
+	}
+
+	ttl := time.Duration(req.TTL) * time.Second
+	if ttl == 0 {
+		ttl = defaultTTL
+	}
+	if ttl < minTTL || ttl > maxTTL {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_ttl"})
+		return
+	}
+
 	pub, priv, err := generateKey()
 	if err != nil {
 		h.logger.Error("generateKey", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	id, err := h.store.Save(priv)
+	id, err := h.store.Save(priv, ttl)
 	if err != nil {
 		h.logger.Error("store.Save", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
