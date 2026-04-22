@@ -1,17 +1,26 @@
 {{define "share-body"}}
 <section class="card stack">
   <div>
-    <h2 class="section-title">Shared note shell</h2>
+    <h2 class="section-title">Shared note</h2>
     <p class="hint">Record ID</p>
     <p class="record-id"><code>{{.ShareID}}</code></p>
   </div>
 
-  <p>This page is ready for the later browser-side fetch and decrypt flow. Milestone 4 stops at the HTML shell.</p>
+  <p>The encrypted payload should already be in this page’s URL fragment. Decryption happens locally after a one-time fetch of the private key.</p>
 
   <div class="actions">
-    <button class="button" type="button" data-share-id="{{.ShareID}}">Decrypt</button>
+    <button class="button" type="button" data-decrypt-button>Decrypt</button>
+    <button class="button button-secondary" type="button" data-keep-visible hidden>Keep visible</button>
   </div>
 
-  <p id="share-status" class="status" data-state="idle">Decrypt is not wired yet. This page is ready for milestone 5 client logic.</p>
+  <p id="share-status" class="status" data-state="idle">Ready to fetch the one-time private key and decrypt locally.</p>
+</section>
+
+<section class="card stack" data-share-result hidden>
+  <div class="stack stack-compact">
+    <h2 class="section-title">Plaintext</h2>
+    <p class="hint">Auto-hides after {{.AutoHideSeconds}} seconds unless you click "Keep visible".</p>
+  </div>
+  <pre class="plaintext" data-share-plaintext></pre>
 </section>
 {{end}}

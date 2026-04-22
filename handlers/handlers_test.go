@@ -172,10 +172,12 @@ func TestHomePageOK(t *testing.T) {
 		"Create a secure note",
 		"Generate link",
 		"/static/style.css",
-		"/static/create.js",
+		"/static/qrcode.js",
+		"/static/app.js",
 		`textarea id="message"`,
 		`name="expiryPreset"`,
-		"POST /api/keys",
+		`data-page="create"`,
+		`data-share-url`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("home page missing %q", want)
@@ -204,7 +206,9 @@ func TestSharePageOK(t *testing.T) {
 		"Decrypt",
 		"abc123",
 		`data-share-id="abc123"`,
-		"Decrypt is not wired yet.",
+		`data-page="share"`,
+		`data-autohide-seconds="60"`,
+		"Ready to fetch the one-time private key and decrypt locally.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("share page missing %q", want)

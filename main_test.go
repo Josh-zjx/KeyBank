@@ -1,15 +1,12 @@
 package main
 
 import (
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
-
-	"github.com/josh-zjx/keybank/handlers"
 )
 
 // newTestMux builds the same routing table that main() will register,
@@ -17,23 +14,10 @@ import (
 func newTestMux(t *testing.T, store KeyStore) http.Handler {
 	t.Helper()
 
-	templates, err := handlers.ParseTemplates(os.DirFS("."))
+	mux, err := newAppHandler(os.DirFS("."), store, slog.Default(), noopRateLimiter{}, noopRateLimiter{}, 60)
 	if err != nil {
-		t.Fatalf("ParseTemplates: %v", err)
+		t.Fatalf("newAppHandler: %v", err)
 	}
-	h := handlers.New(&storeAdapter{ks: store}, slog.Default(), templates)
-
-	staticFS, err := fs.Sub(os.DirFS("."), "static")
-	if err != nil {
-		t.Fatalf("fs.Sub(static): %v", err)
-	}
-
-	mux := http.NewServeMux()
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-	mux.HandleFunc("POST /api/keys", h.CreateKey)
-	mux.HandleFunc("GET /api/keys/{id}", h.FetchKey)
-	mux.HandleFunc("GET /", h.HomePage)
-	mux.HandleFunc("GET /share/{id}", h.SharePage)
 	return mux
 }
 

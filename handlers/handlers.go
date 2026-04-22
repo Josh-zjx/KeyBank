@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	minTTL     = 60 * time.Second
-	maxTTL     = 7 * 24 * time.Hour
-	defaultTTL = 24 * time.Hour
+	minTTL                 = 60 * time.Second
+	maxTTL                 = 7 * 24 * time.Hour
+	defaultTTL             = 24 * time.Hour
+	defaultAutoHideSeconds = 60
 )
 
 // Store is the minimal persistence interface handlers need.
@@ -33,6 +34,7 @@ type Handlers struct {
 	store     Store
 	logger    *slog.Logger
 	templates *template.Template
+	autoHide  int
 }
 
 // ParseTemplates loads the create/share page templates from fsys.
@@ -46,7 +48,13 @@ func ParseTemplates(fsys fs.FS) (*template.Template, error) {
 
 // New creates a Handlers with the given store, logger, and templates.
 func New(store Store, logger *slog.Logger, templates *template.Template) *Handlers {
-	return &Handlers{store: store, logger: logger, templates: templates}
+	return &Handlers{store: store, logger: logger, templates: templates, autoHide: defaultAutoHideSeconds}
+}
+
+func (h *Handlers) SetAutoHideSeconds(seconds int) {
+	if seconds > 0 {
+		h.autoHide = seconds
+	}
 }
 
 // CreateKeyResponse is the JSON body returned by POST /api/keys.
@@ -60,11 +68,14 @@ type createKeyRequest struct {
 }
 
 type pageData struct {
-	Title        string
-	BodyClass    string
-	BodyTemplate string
-	ScriptPath   string
-	ShareID      string
+	Title           string
+	Page            string
+	BodyClass       string
+	BodyTemplate    string
+	ScriptPath      string
+	VendorScripts   []string
+	ShareID         string
+	AutoHideSeconds int
 }
 
 // CreateKey handles POST /api/keys.
@@ -143,20 +154,26 @@ func (h *Handlers) FetchKey(w http.ResponseWriter, r *http.Request) {
 // HomePage handles GET /.
 func (h *Handlers) HomePage(w http.ResponseWriter, r *http.Request) {
 	h.renderPage(w, pageData{
-		Title:        "Create a secure note",
-		BodyClass:    "page-create",
-		BodyTemplate: "create-body",
-		ScriptPath:   "/static/create.js",
+		Title:           "Create a secure note",
+		Page:            "create",
+		BodyClass:       "page-create",
+		BodyTemplate:    "create-body",
+		ScriptPath:      "/static/app.js",
+		VendorScripts:   []string{"/static/qrcode.js"},
+		AutoHideSeconds: h.autoHide,
 	})
 }
 
 // SharePage handles GET /share/{id}.
 func (h *Handlers) SharePage(w http.ResponseWriter, r *http.Request) {
 	h.renderPage(w, pageData{
-		Title:        "Open a shared note",
-		BodyClass:    "page-share",
-		BodyTemplate: "share-body",
-		ShareID:      r.PathValue("id"),
+		Title:           "Open a shared note",
+		Page:            "share",
+		BodyClass:       "page-share",
+		BodyTemplate:    "share-body",
+		ScriptPath:      "/static/app.js",
+		ShareID:         r.PathValue("id"),
+		AutoHideSeconds: h.autoHide,
 	})
 }
 

@@ -3,7 +3,7 @@
   <form class="stack" data-create-form novalidate>
     <label class="field" for="message">
       <span class="field-label">Message</span>
-      <textarea id="message" rows="10" placeholder="Type the secret you want to encrypt in a later milestone."></textarea>
+      <textarea id="message" rows="10" placeholder="Type the secret you want to encrypt entirely in this browser."></textarea>
     </label>
 
     <fieldset class="field">
@@ -32,14 +32,44 @@
 
     <div class="actions">
       <button class="button" type="submit">Generate link</button>
-      <p class="hint">Milestone 4 only calls <code>POST /api/keys</code>. The message above is not submitted.</p>
+      <p class="hint">The message never leaves this page. KeyBank only sees the request for a one-time public key and the chosen expiry.</p>
     </div>
   </form>
 </section>
 
 <section class="card stack" aria-live="polite">
-  <h2 class="section-title">Status</h2>
-  <p id="create-status" class="status" data-state="idle">Ready to request a one-time keypair.</p>
-  <pre id="create-result" class="result" hidden></pre>
+  <h2 class="section-title">Generated link</h2>
+  <p id="create-status" class="status" data-state="idle">Ready to encrypt your message in this browser.</p>
+  <div id="create-result" class="stack" hidden>
+    <label class="field" for="share-url">
+      <span class="field-label">Share URL</span>
+      <textarea id="share-url" data-share-url rows="5" readonly></textarea>
+    </label>
+    <div class="actions">
+      <button class="button button-secondary" type="button" data-copy-link>Copy link</button>
+      <a class="button button-secondary" data-open-share target="_blank" rel="noreferrer noopener">Open share page</a>
+    </div>
+    <div class="stack">
+      <div>
+        <h3 class="section-subtitle">QR code</h3>
+        <p class="hint">Shorter notes create smaller share URLs and more reliable QR codes.</p>
+      </div>
+      <div class="qr-shell">
+        <div class="qr-code" data-qr-code aria-label="QR code for the generated share URL"></div>
+      </div>
+    </div>
+  </div>
 </section>
+
+<dialog class="modal" data-size-warning>
+  <form method="dialog" class="stack">
+    <h2 class="section-title">Large message warning</h2>
+    <p data-size-warning-text>This note is larger than 100 KB once encoded as UTF-8. That can make the final share link unwieldy.</p>
+    <p class="hint">You can continue, but the resulting URL may be difficult to copy, scan, or open on every device.</p>
+    <div class="actions">
+      <button class="button button-secondary" value="cancel">Cancel</button>
+      <button class="button" value="confirm">Encrypt anyway</button>
+    </div>
+  </form>
+</dialog>
 {{end}}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,40 +18,30 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	store := newRedisKeyStore(cfg.RedisAddr)
-	templates, err := handlers.ParseTemplates(assets)
-	if err != nil {
-		panic(err)
-	}
-	h := handlers.New(&storeAdapter{ks: store}, logger, templates)
-
-	staticFS, err := fs.Sub(assets, "static")
-	if err != nil {
-		panic(err)
-	}
-
-	createLimiter := newRedisRateLimiter(store.client, "create", cfg.RateLimitCreate)
-	fetchLimiter := newRedisRateLimiter(store.client, "fetch", cfg.RateLimitFetch)
-
-	mux := http.NewServeMux()
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-	mux.Handle("POST /api/keys", handlers.Chain(
-		handlers.MaxBodySize(64*1024),
-		handlers.RateLimit(createLimiter),
-	)(http.HandlerFunc(h.CreateKey)))
-	mux.Handle("GET /api/keys/{id}",
-		handlers.RateLimit(fetchLimiter)(http.HandlerFunc(h.FetchKey)))
-	mux.HandleFunc("GET /", h.HomePage)
-	mux.HandleFunc("GET /share/{id}", h.SharePage)
-
-	globalChain := handlers.Chain(
-		handlers.PanicRecover(logger),
-		handlers.SecurityHeaders(),
+	var (
+		store         KeyStore
+		createLimiter handlers.RateLimiter = noopRateLimiter{}
+		fetchLimiter  handlers.RateLimiter = noopRateLimiter{}
 	)
+
+	switch cfg.StoreBackend {
+	case "mem":
+		store = newMemKeyStore()
+	default:
+		redisStore := newRedisKeyStore(cfg.RedisAddr)
+		store = redisStore
+		createLimiter = newRedisRateLimiter(redisStore.client, "create", cfg.RateLimitCreate)
+		fetchLimiter = newRedisRateLimiter(redisStore.client, "fetch", cfg.RateLimitFetch)
+	}
+
+	app, err := newAppHandler(assets, store, logger, createLimiter, fetchLimiter, cfg.AutoHideSeconds)
+	if err != nil {
+		panic(err)
+	}
 
 	addr := ":" + cfg.Port
 	logger.Info("server starting", "addr", addr)
-	if err := http.ListenAndServe(addr, globalChain(mux)); err != nil {
+	if err := http.ListenAndServe(addr, app); err != nil {
 		panic(err)
 	}
 }

@@ -11,6 +11,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -45,7 +49,8 @@ body.page-share {
 }
 
 h1,
-.section-title {
+.section-title,
+.section-subtitle {
   margin: 0;
   line-height: 1.2;
 }
@@ -55,6 +60,7 @@ h1 {
 }
 
 .lead,
+.banner,
 .hint,
 .status,
 p {
@@ -65,6 +71,15 @@ p {
   margin-top: 0.75rem;
   max-width: 42rem;
   color: #4b5563;
+}
+
+.banner {
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #fbbf24;
+  border-radius: 0.85rem;
+  background: #fffbeb;
+  color: #92400e;
 }
 
 .card {
@@ -79,6 +94,10 @@ p {
 .stack {
   display: grid;
   gap: 1rem;
+}
+
+.stack-compact {
+  gap: 0.5rem;
 }
 
 .field {
@@ -107,9 +126,14 @@ textarea {
   resize: vertical;
 }
 
+textarea[readonly] {
+  min-height: 7rem;
+}
+
 textarea:focus,
 input[type="number"]:focus,
-.button:focus {
+.button:focus,
+.modal:focus {
   outline: 3px solid rgba(37, 99, 235, 0.18);
   outline-offset: 2px;
 }
@@ -153,10 +177,21 @@ input[type="number"]:focus,
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .button:hover {
   background: #1d4ed8;
+}
+
+.button-secondary {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.button-secondary:hover {
+  background: #dbeafe;
 }
 
 .hint {
@@ -188,18 +223,9 @@ input[type="number"]:focus,
 
 .result,
 .record-id code,
-code {
+code,
+.plaintext {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-}
-
-.result {
-  margin: 0;
-  padding: 1rem;
-  overflow-x: auto;
-  border-radius: 0.75rem;
-  background: #0f172a;
-  color: #e2e8f0;
-  font-size: 0.9rem;
 }
 
 .record-id {
@@ -208,6 +234,59 @@ code {
 
 .record-id code {
   word-break: break-all;
+}
+
+.qr-shell {
+  display: grid;
+  place-items: center;
+  min-height: 15rem;
+  padding: 1rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 1rem;
+  background: #f8fafc;
+}
+
+.qr-code {
+  display: grid;
+  place-items: center;
+  min-width: 12rem;
+  min-height: 12rem;
+}
+
+.qr-code img,
+.qr-code canvas,
+.qr-code svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.plaintext {
+  margin: 0;
+  padding: 1rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 0.85rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 0.95rem;
+}
+
+.modal {
+  width: min(32rem, calc(100% - 2rem));
+  padding: 0;
+  border: 0;
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px rgba(15, 23, 42, 0.24);
+}
+
+.modal::backdrop {
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.modal form {
+  padding: 1.25rem;
 }
 
 @media (max-width: 480px) {

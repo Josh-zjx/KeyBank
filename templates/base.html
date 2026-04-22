@@ -8,19 +8,25 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="{{.BodyClass}}">
-  <main class="shell">
+  <main
+    class="shell"
+    data-page="{{.Page}}"
+    data-share-id="{{.ShareID}}"
+    data-autohide-seconds="{{.AutoHideSeconds}}">
     <header class="hero">
       <p class="eyebrow">KeyBank</p>
       <h1>{{.Title}}</h1>
-      <p class="lead">The server stores only one-time private keys. Your message stays in this browser until the client-side crypto flow ships.</p>
+      <p class="lead">The server stores only one-time private keys. The encrypted payload stays in the share link fragment and never reaches the server.</p>
     </header>
+    <p class="banner banner-warning" data-http-warning hidden>Warning: this page is running over plain HTTP. Anyone on the network path could tamper with what you receive.</p>
     {{if eq .BodyTemplate "create-body"}}
       {{template "create-body" .}}
     {{else if eq .BodyTemplate "share-body"}}
       {{template "share-body" .}}
     {{end}}
   </main>
-  {{if .ScriptPath}}<script defer src="{{.ScriptPath}}"></script>{{end}}
+  {{range .VendorScripts}}<script defer src="{{.}}"></script>{{end}}
+  {{if .ScriptPath}}<script type="module" src="{{.ScriptPath}}"></script>{{end}}
 </body>
 </html>
 {{end}}

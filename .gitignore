@@ -20,6 +20,9 @@ cover.out
 
 # Local tool settings
 .claude/settings.local.json
+node_modules/
+playwright-report/
+test-results/
 
 # OS metadata
 .DS_Store

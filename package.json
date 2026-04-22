@@ -1,0 +1,11 @@
+{
+  "name": "keybank",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "playwright:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.39.0"
+  }
+}
