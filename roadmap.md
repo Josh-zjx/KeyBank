@@ -30,12 +30,12 @@ documented in `README.md`.
 
 ## Milestone 1 — Record model and expiry
 
-**Goal:** the storage layer understands the richer record and honors a
+**Goal:** the storage layer understands the record shape and honors a
 user-chosen TTL.
 
-- Define `Record{PrivPEM, PwdHash, Attempts, CreatedAt}` in `record.go`
-  (JSON codec, zero-value safe). `PwdHash` is populated later in M2; M1
-  only establishes the shape and codec.
+- Define `Record{PrivPEM, CreatedAt}` in `record.go` (JSON codec,
+  zero-value safe). Keep the v0.1 record minimal; password-related
+  fields are deferred to a post-v0.1 redesign.
 - Update the `KeyStore` interface to `Save(Record, ttl) (id, error)` and
   `Load(id) (*Record, error)`.
 - Migrate `memKeyStore` and `redisKeyStore` to the new shape.
@@ -47,40 +47,28 @@ user-chosen TTL.
 **Done when:** `go test ./...` is green with ≥ 85% coverage on `store` and
 `record`.
 
-## Milestone 2 — Password gate
+## Milestone 2 — Password gate (deferred)
 
-**Goal:** optional password layer resistant to brute force.
+**Status:** deferred until after v0.1 ships the core one-time share flow.
 
-Design: the salt travels with the other crypto material in the URL
-fragment. The server only stores the final derived hash — it knows nothing
-about the salt or the password itself. This keeps the server's role
-symmetric: it is still just a key-bank, never a password oracle.
+The original password-gate design adds too much risk to the first release:
+it introduces extra state, complicates the record model, and is easy to get
+wrong in a way that weakens the atomic consume-on-read guarantee. v0.1
+therefore ships without server-side password validation.
 
-- Contract:
-  - **Create**: when the sender sets a password, the client generates a
-    random 16-byte salt, computes `pwd_hash = PBKDF2-SHA256(password, salt,
-    100k iters, 32 bytes)` locally, and sends `pwd_hash` (hex) in the
-    `POST /api/keys` body alongside `ttl`. The salt is embedded in the
-    URL fragment next to the wrapped AES key and ciphertext.
-  - **Fetch**: the recipient reads the salt from the fragment, prompts for
-    the password, re-derives the same `pwd_hash` locally, and sends it as
-    `X-Pwd-Hash: <hex>` on `GET /api/keys/{id}`.
-- Create handler validates and stores `PwdHash` (when present) into the
-  `Record`.
-- `GET /api/keys/{id}` logic:
-  1. Load the record (do **not** delete yet).
-  2. If `PwdHash` is set, constant-time compare with the header; on
-     mismatch, increment `Attempts`, return `403 bad_password` with the
-     remaining-attempts count in the body.
-  3. After five consecutive mismatches, `DEL` the record and return
-     `410 locked`.
-  4. On match (or when no password is required), `GETDEL` atomically and
-     return the private key.
-- Tests: right / wrong / missing password, counter increments, lockout
-  deletes the record, timing-attack resistance audited by code review.
+- Keep password-derived state (`PwdHash`, failed-attempt counters, lockout
+  behavior) out of the v0.1 record model and API.
+- Remove password inputs and wrong-password flows from the v0.1 UI and test
+  milestones below.
+- Treat possession of the full share URL as sufficient to attempt decryption;
+  document that explicitly in the threat model before revisiting this work.
+- When this milestone is revived, redesign it around a single atomic
+  Redis-side fetch/validate/consume operation. Do not split password checks
+  and record deletion across separate storage round trips.
 
-**Done when:** no code path releases the private key before the password
-check passes; lockout tests green.
+**Done when:** the v0.1 critical path no longer depends on password-gate
+work, and any future password milestone starts from an atomic
+consume-or-fail contract.
 
 ## Milestone 3 — Middleware and hardening
 
@@ -105,9 +93,8 @@ security-headers table in `techstack.md`.
 
 - `templates/base.html` with strict CSP and no inline scripts.
 - `templates/create.html`: textarea for the message, expiry picker
-  (1h / 1d / 7d / custom), optional password field, "Generate link" button.
-- `templates/share.html`: "decrypt" button, optional password input, status
-  area for errors.
+  (1h / 1d / 7d / custom), "Generate link" button.
+- `templates/share.html`: "decrypt" button and status area for errors.
 - `static/style.css`: clean minimal layout, responsive down to 320px width.
 - Routes: `GET /` → create page, `GET /share/{id}` → share page.
 
@@ -120,8 +107,7 @@ security-headers table in `techstack.md`.
 
 - `static/crypto.js` is DOM-free and exports:
   `generateAesKey()`, `encryptMessage(pubPem, plaintext) → {wrapped, iv, ct}`,
-  `decryptMessage(privPem, wrapped, iv, ct) → plaintext`,
-  `derivePwdHash(password, id) → hex`.
+  `decryptMessage(privPem, wrapped, iv, ct) → plaintext`.
 - `static/app.js` orchestrates the create and share flows, reads and writes
   `location.hash`, and renders a QR code via vendored `qrcode.js`.
 - Soft plaintext cap at 100 KB with a warning modal beyond that.
@@ -129,7 +115,7 @@ security-headers table in `techstack.md`.
   by a "keep visible" click).
 - Warn the user if the page is loaded over plain HTTP.
 - Playwright tests: end-to-end round-trip, tampered-fragment rejected,
-  wrong-password path, auto-hide behavior.
+  auto-hide behavior.
 
 **Done when:** a fresh browser context can create a link and decrypt it;
 tampered URLs produce a clear error without leaking any plaintext.
@@ -179,18 +165,25 @@ from the README alone.
 
 Revisit after launch feedback — deliberately not sequenced.
 
+- Reintroduce an optional password gate only with an atomic Redis-side
+  design (for example, a Lua-backed fetch/validate/consume step).
 - Burn-after-reading receipt (a sender-facing notification endpoint that
   trades a small timing side channel for usability).
-- Argon2id instead of PBKDF2 if the dependency cost is acceptable.
+- If the password gate returns, evaluate Argon2id instead of PBKDF2 if the
+  dependency cost is acceptable.
 - Migration to X25519 + XChaCha20-Poly1305 for smaller keys and faster
   crypto.
 - Optional Tor hidden-service deploy guide.
 
 ## Milestone dependencies
 
+v0.1 critical path:
+
 ```
-M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8
+M0 → M1 → M3 → M4 → M5 → M6 → M7 → M8
 ```
 
-Strictly sequential. Each milestone is a green-CI commit. No parallel
-tracks until after v0.1.
+Deferred until after v0.1: `M2`.
+
+The v0.1 path stays strictly sequential. `M2` is intentionally out of band
+until the core release is complete.
