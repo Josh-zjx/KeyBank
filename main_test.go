@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/josh-zjx/keybank/handlers"
 )
@@ -13,7 +13,7 @@ import (
 // newTestMux builds the same routing table that main() will register,
 // allowing integration tests to exercise the full request path.
 func newTestMux(store KeyStore) http.Handler {
-	h := handlers.New(store, slog.Default())
+	h := handlers.New(&storeAdapter{ks: store}, slog.Default())
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/keys", h.CreateKey)
 	mux.HandleFunc("GET /api/keys/{id}", h.FetchKey)
@@ -25,8 +25,8 @@ func newTestMux(store KeyStore) http.Handler {
 func TestPrivateKeyIsOneTime(t *testing.T) {
 	store := newMemKeyStore()
 
-	original := []byte("test-private-key-data")
-	id, err := store.Save(original)
+	original := Record{PrivPEM: "test-private-key-data", CreatedAt: time.Now()}
+	id, err := store.Save(original, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
@@ -35,8 +35,8 @@ func TestPrivateKeyIsOneTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Load failed: %v", err)
 	}
-	if !bytes.Equal(got, original) {
-		t.Errorf("first Load = %q, want %q", got, original)
+	if got == nil || got.PrivPEM != original.PrivPEM {
+		t.Errorf("first Load = %v, want PrivPEM %q", got, original.PrivPEM)
 	}
 
 	got2, err := store.Load(id)
@@ -44,14 +44,14 @@ func TestPrivateKeyIsOneTime(t *testing.T) {
 		t.Fatalf("second Load returned unexpected error: %v", err)
 	}
 	if got2 != nil {
-		t.Errorf("second Load should return nil after first use, got %q", got2)
+		t.Errorf("second Load should return nil after first use, got %+v", got2)
 	}
 }
 
 func TestFetchEndpointIsOneTime(t *testing.T) {
 	store := newMemKeyStore()
 
-	id, err := store.Save([]byte("fake-private-key"))
+	id, err := store.Save(Record{PrivPEM: "fake-private-key", CreatedAt: time.Now()}, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
