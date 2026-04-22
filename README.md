@@ -22,6 +22,39 @@ The message is never sent to the server, therefore reducing the legal problem on
 - Every time one new keypair
 	- No ciphertext only attack on consecutive use
 
+# API
+
+## POST /api/keys
+
+Generates an RSA-4096 keypair. Stores the private key server-side and returns the public key to the caller. The caller uses the public key to encrypt a message client-side; the ciphertext is never sent to the server.
+
+**Response `201 Created`:**
+```json
+{
+  "id": "3f2a1b4c...",
+  "pub_pem": "-----BEGIN RSA PUBLIC KEY-----\n..."
+}
+```
+
+| Field | Description |
+|---|---|
+| `id` | 128-bit random hex ID used to retrieve the private key |
+| `pub_pem` | RSA-4096 public key in PKCS#1 PEM format |
+
+## GET /api/keys/{id}
+
+Retrieves and **permanently deletes** the private key for the given ID (one-time read). Returns `404` if the key has already been fetched or never existed.
+
+**Response `200 OK`:** private key PEM bytes (used by the browser to decrypt the message).
+
+## GET /
+
+Create page (shell — UI added in Milestone 4).
+
+## GET /share/{id}
+
+Decryption page for share URL (shell — UI added in Milestone 4).
+
 # Credit
 This project is inspired by many secure note sharing app on the Internet, especially the [ tutorial ](https://dusted.codes/building-a-secure-note-sharing-service-in-go) made by [Dusted Codes Limited](https://dusted.codes/about) .
 	

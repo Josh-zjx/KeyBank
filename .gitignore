@@ -1,0 +1,25 @@
+# Go build artifacts
+/keybank
+/bin/
+*.test
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Coverage and profiling output
+coverage.out
+cover.out
+*.coverprofile
+*.prof
+
+# Local environment overrides
+.env
+.env.*
+!.env.example
+
+# Local tool settings
+.claude/settings.local.json
+
+# OS metadata
+.DS_Store
