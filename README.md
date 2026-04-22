@@ -49,11 +49,13 @@ Retrieves and **permanently deletes** the private key for the given ID (one-time
 
 ## GET /
 
-Create page (shell — UI added in Milestone 4).
+Create page for drafting a note, choosing an expiry, and stub-testing the
+key-creation API without sending plaintext to the server.
 
 ## GET /share/{id}
 
-Decryption page for share URL (shell — UI added in Milestone 4).
+Share page shell with the record ID, decrypt button, and status area that later
+milestones will connect to the browser-side decrypt flow.
 
 # Credit
 This project is inspired by many secure note sharing app on the Internet, especially the [ tutorial ](https://dusted.codes/building-a-secure-note-sharing-service-in-go) made by [Dusted Codes Limited](https://dusted.codes/about) .

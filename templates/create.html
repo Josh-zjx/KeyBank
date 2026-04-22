@@ -1,0 +1,45 @@
+{{define "create-body"}}
+<section class="card">
+  <form class="stack" data-create-form novalidate>
+    <label class="field" for="message">
+      <span class="field-label">Message</span>
+      <textarea id="message" rows="10" placeholder="Type the secret you want to encrypt in a later milestone."></textarea>
+    </label>
+
+    <fieldset class="field">
+      <legend class="field-label">Expiry</legend>
+      <div class="expiry-options">
+        <label class="choice">
+          <input type="radio" name="expiryPreset" value="3600">
+          <span>1 hour</span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="expiryPreset" value="86400" checked>
+          <span>1 day</span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="expiryPreset" value="604800">
+          <span>7 days</span>
+        </label>
+        <label class="choice choice-custom">
+          <input type="radio" name="expiryPreset" value="custom">
+          <span>Custom</span>
+          <input id="custom-ttl" type="number" min="1" max="10080" value="60" inputmode="numeric" aria-label="Custom expiry in minutes">
+          <span>minutes</span>
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="actions">
+      <button class="button" type="submit">Generate link</button>
+      <p class="hint">Milestone 4 only calls <code>POST /api/keys</code>. The message above is not submitted.</p>
+    </div>
+  </form>
+</section>
+
+<section class="card stack" aria-live="polite">
+  <h2 class="section-title">Status</h2>
+  <p id="create-status" class="status" data-state="idle">Ready to request a one-time keypair.</p>
+  <pre id="create-result" class="result" hidden></pre>
+</section>
+{{end}}

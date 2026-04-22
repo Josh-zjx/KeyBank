@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,8 +18,8 @@ import (
 
 // fakeStore satisfies handlers.Store for testing without RSA or Redis.
 type fakeStore struct {
-	data   map[string][]byte
-	nextID string
+	data    map[string][]byte
+	nextID  string
 	lastTTL time.Duration
 }
 
@@ -43,6 +46,23 @@ func (f *fakeStore) Load(id string) ([]byte, error) {
 	return v, nil
 }
 
+func newTestHandlers(t *testing.T, store handlers.Store) *handlers.Handlers {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Join(filepath.Dir(file), "..")
+
+	templates, err := handlers.ParseTemplates(os.DirFS(root))
+	if err != nil {
+		t.Fatalf("ParseTemplates: %v", err)
+	}
+
+	return handlers.New(store, slog.Default(), templates)
+}
+
 // newServeMux registers all routes on a fresh ServeMux using h.
 func newServeMux(h *handlers.Handlers) *http.ServeMux {
 	mux := http.NewServeMux()
@@ -54,7 +74,7 @@ func newServeMux(h *handlers.Handlers) *http.ServeMux {
 }
 
 func TestCreateKeyReturnsJSON(t *testing.T) {
-	h := handlers.New(newFakeStore(), slog.Default())
+	h := newTestHandlers(t, newFakeStore())
 	mux := newServeMux(h)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/keys", nil)
@@ -83,7 +103,7 @@ func TestCreateKeyReturnsJSON(t *testing.T) {
 func TestFetchKeyReturnsKey(t *testing.T) {
 	store := newFakeStore()
 	id, _ := store.Save([]byte("fake-priv-key"), 24*time.Hour)
-	h := handlers.New(store, slog.Default())
+	h := newTestHandlers(t, store)
 	mux := newServeMux(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/keys/"+id, nil)
@@ -101,7 +121,7 @@ func TestFetchKeyReturnsKey(t *testing.T) {
 func TestFetchKeyIsOneTime(t *testing.T) {
 	store := newFakeStore()
 	id, _ := store.Save([]byte("fake-priv-key"), 24*time.Hour)
-	h := handlers.New(store, slog.Default())
+	h := newTestHandlers(t, store)
 	mux := newServeMux(h)
 
 	req1 := httptest.NewRequest(http.MethodGet, "/api/keys/"+id, nil)
@@ -120,7 +140,7 @@ func TestFetchKeyIsOneTime(t *testing.T) {
 }
 
 func TestFetchKeyNotFound(t *testing.T) {
-	h := handlers.New(newFakeStore(), slog.Default())
+	h := newTestHandlers(t, newFakeStore())
 	mux := newServeMux(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/keys/no-such-id", nil)
@@ -133,7 +153,7 @@ func TestFetchKeyNotFound(t *testing.T) {
 }
 
 func TestHomePageOK(t *testing.T) {
-	h := handlers.New(newFakeStore(), slog.Default())
+	h := newTestHandlers(t, newFakeStore())
 	mux := newServeMux(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -143,10 +163,28 @@ func TestHomePageOK(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200", w.Code)
 	}
+	if got := w.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type: got %q, want text/html; charset=utf-8", got)
+	}
+
+	body := w.Body.String()
+	for _, want := range []string{
+		"Create a secure note",
+		"Generate link",
+		"/static/style.css",
+		"/static/create.js",
+		`textarea id="message"`,
+		`name="expiryPreset"`,
+		"POST /api/keys",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("home page missing %q", want)
+		}
+	}
 }
 
 func TestSharePageOK(t *testing.T) {
-	h := handlers.New(newFakeStore(), slog.Default())
+	h := newTestHandlers(t, newFakeStore())
 	mux := newServeMux(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/share/abc123", nil)
@@ -155,6 +193,22 @@ func TestSharePageOK(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type: got %q, want text/html; charset=utf-8", got)
+	}
+
+	body := w.Body.String()
+	for _, want := range []string{
+		"Open a shared note",
+		"Decrypt",
+		"abc123",
+		`data-share-id="abc123"`,
+		"Decrypt is not wired yet.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("share page missing %q", want)
+		}
 	}
 }
 
@@ -175,7 +229,7 @@ func postWithBody(mux http.Handler, body string) *httptest.ResponseRecorder {
 
 func TestCreateKeyDefaultTTL(t *testing.T) {
 	store := newFakeStore()
-	mux := newServeMux(handlers.New(store, slog.Default()))
+	mux := newServeMux(newTestHandlers(t, store))
 	w := postWithBody(mux, "")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("got %d, want 201", w.Code)
@@ -187,7 +241,7 @@ func TestCreateKeyDefaultTTL(t *testing.T) {
 
 func TestCreateKeyTTLZeroDefaultsTo24h(t *testing.T) {
 	store := newFakeStore()
-	mux := newServeMux(handlers.New(store, slog.Default()))
+	mux := newServeMux(newTestHandlers(t, store))
 	w := postWithBody(mux, `{"ttl":0}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("got %d, want 201", w.Code)
@@ -198,7 +252,7 @@ func TestCreateKeyTTLZeroDefaultsTo24h(t *testing.T) {
 }
 
 func TestCreateKeyMinTTL(t *testing.T) {
-	mux := newServeMux(handlers.New(newFakeStore(), slog.Default()))
+	mux := newServeMux(newTestHandlers(t, newFakeStore()))
 	w := postWithBody(mux, `{"ttl":60}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("got %d, want 201", w.Code)
@@ -206,7 +260,7 @@ func TestCreateKeyMinTTL(t *testing.T) {
 }
 
 func TestCreateKeyMaxTTL(t *testing.T) {
-	mux := newServeMux(handlers.New(newFakeStore(), slog.Default()))
+	mux := newServeMux(newTestHandlers(t, newFakeStore()))
 	w := postWithBody(mux, `{"ttl":604800}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("got %d, want 201", w.Code)
@@ -214,7 +268,7 @@ func TestCreateKeyMaxTTL(t *testing.T) {
 }
 
 func TestCreateKeyTTLTooLow(t *testing.T) {
-	mux := newServeMux(handlers.New(newFakeStore(), slog.Default()))
+	mux := newServeMux(newTestHandlers(t, newFakeStore()))
 	w := postWithBody(mux, `{"ttl":59}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400", w.Code)
@@ -229,7 +283,7 @@ func TestCreateKeyTTLTooLow(t *testing.T) {
 }
 
 func TestCreateKeyTTLTooHigh(t *testing.T) {
-	mux := newServeMux(handlers.New(newFakeStore(), slog.Default()))
+	mux := newServeMux(newTestHandlers(t, newFakeStore()))
 	w := postWithBody(mux, `{"ttl":604801}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400", w.Code)
@@ -249,34 +303,35 @@ func TestCreateKeyTTLTooHigh(t *testing.T) {
 type errorStore struct{}
 
 func (e *errorStore) Save(_ []byte, _ time.Duration) (string, error) {
-return "", fmt.Errorf("store unavailable")
+	return "", fmt.Errorf("store unavailable")
 }
+
 func (e *errorStore) Load(_ string) ([]byte, error) {
-return nil, fmt.Errorf("store unavailable")
+	return nil, fmt.Errorf("store unavailable")
 }
 
 func TestCreateKeyStoreSaveError(t *testing.T) {
-h := handlers.New(&errorStore{}, slog.Default())
-mux := newServeMux(h)
+	h := newTestHandlers(t, &errorStore{})
+	mux := newServeMux(h)
 
-req := httptest.NewRequest("POST", "/api/keys", nil)
-w := httptest.NewRecorder()
-mux.ServeHTTP(w, req)
+	req := httptest.NewRequest("POST", "/api/keys", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
 
-if w.Code != 500 {
-t.Fatalf("status: got %d, want 500", w.Code)
-}
+	if w.Code != 500 {
+		t.Fatalf("status: got %d, want 500", w.Code)
+	}
 }
 
 func TestFetchKeyStoreLoadError(t *testing.T) {
-h := handlers.New(&errorStore{}, slog.Default())
-mux := newServeMux(h)
+	h := newTestHandlers(t, &errorStore{})
+	mux := newServeMux(h)
 
-req := httptest.NewRequest("GET", "/api/keys/any-id", nil)
-w := httptest.NewRecorder()
-mux.ServeHTTP(w, req)
+	req := httptest.NewRequest("GET", "/api/keys/any-id", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
 
-if w.Code != 500 {
-t.Fatalf("status: got %d, want 500", w.Code)
-}
+	if w.Code != 500 {
+		t.Fatalf("status: got %d, want 500", w.Code)
+	}
 }

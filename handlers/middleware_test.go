@@ -15,8 +15,8 @@ import (
 
 // fakeRateLimiter counts Allow calls per IP and blocks after the limit.
 type fakeRateLimiter struct {
-	limit   int
-	counts  sync.Map
+	limit  int
+	counts sync.Map
 }
 
 func (f *fakeRateLimiter) Allow(ip string) bool {
@@ -27,9 +27,9 @@ func (f *fakeRateLimiter) Allow(ip string) bool {
 }
 
 // newMiddlewareMux registers all four routes with the provided middleware applied globally.
-func newMiddlewareMux(mw handlers.Middleware) http.Handler {
+func newMiddlewareMux(t *testing.T, mw handlers.Middleware) http.Handler {
 	store := newFakeStore()
-	h := handlers.New(store, slog.Default())
+	h := newTestHandlers(t, store)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/keys", h.CreateKey)
@@ -53,7 +53,7 @@ var securityHeaderCases = []struct {
 }
 
 func TestSecurityHeadersOnAllEndpoints(t *testing.T) {
-	handler := newMiddlewareMux(handlers.SecurityHeaders())
+	handler := newMiddlewareMux(t, handlers.SecurityHeaders())
 
 	wantHeaders := map[string]string{
 		"Strict-Transport-Security": "max-age=15552000; includeSubDomains",
@@ -97,11 +97,9 @@ func TestPanicRecoverReturns500(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status: got %d, want 500", w.Code)
 	}
-	// Stack trace must not appear in the HTTP response body.
 	if strings.Contains(w.Body.String(), "goroutine") {
 		t.Error("response body contains stack trace — must not leak to client")
 	}
-	// Stack trace should appear in the log.
 	if !strings.Contains(logBuf.String(), "panic recovered") {
 		t.Error("log should contain 'panic recovered'")
 	}
@@ -129,15 +127,12 @@ func TestPanicRecoverDoesNotInterfereWithNormalRequests(t *testing.T) {
 
 func TestMaxBodySizeWith413ViaCreateKey(t *testing.T) {
 	store := newFakeStore()
-	h := handlers.New(store, slog.Default())
+	h := newTestHandlers(t, store)
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/keys",
 		handlers.MaxBodySize(64*1024)(http.HandlerFunc(h.CreateKey)))
 
-	// Craft a valid JSON body that exceeds 64 KB so the JSON decoder reads past
-	// the MaxBytesReader limit and returns *http.MaxBytesError.
-	// {"x":"aaa...aaa"} with 66000 'a' chars ≈ 66008 bytes > 65536 (64 KB).
 	padding := strings.Repeat("a", 66000)
 	body := `{"x":"` + padding + `"}`
 
@@ -153,7 +148,7 @@ func TestMaxBodySizeWith413ViaCreateKey(t *testing.T) {
 
 func TestMaxBodySizeAllowsSmallBody(t *testing.T) {
 	store := newFakeStore()
-	h := handlers.New(store, slog.Default())
+	h := newTestHandlers(t, store)
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/keys",
@@ -196,7 +191,6 @@ func TestRateLimitBlocksAfterLimit(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Exhaust the limit.
 	for i := 0; i < limit; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.RemoteAddr = "10.0.0.2:9999"
@@ -204,7 +198,6 @@ func TestRateLimitBlocksAfterLimit(t *testing.T) {
 		handler.ServeHTTP(w, req)
 	}
 
-	// N+1-th request must be blocked.
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.2:9999"
 	w := httptest.NewRecorder()
@@ -222,7 +215,6 @@ func TestRateLimitDifferentIPsAreIndependent(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Exhaust IP-A.
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.1:1"
 	w := httptest.NewRecorder()
@@ -231,7 +223,6 @@ func TestRateLimitDifferentIPsAreIndependent(t *testing.T) {
 		t.Fatalf("IP-A first: got %d", w.Code)
 	}
 
-	// IP-B should still be allowed.
 	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
 	req2.RemoteAddr = "192.168.1.2:1"
 	w2 := httptest.NewRecorder()
@@ -281,19 +272,17 @@ func TestChainAppliesMiddlewareInOrder(t *testing.T) {
 }
 
 func TestRateLimitIPWithoutPort(t *testing.T) {
-// When RemoteAddr has no port (e.g. a Unix socket), remoteIP falls back to the full string.
-limiter := &fakeRateLimiter{limit: 1}
-handler := handlers.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-w.WriteHeader(http.StatusOK)
-}))
+	limiter := &fakeRateLimiter{limit: 1}
+	handler := handlers.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
 
-req := httptest.NewRequest(http.MethodGet, "/", nil)
-req.RemoteAddr = "10.0.0.99" // no port — net.SplitHostPort will fail
-w := httptest.NewRecorder()
-handler.ServeHTTP(w, req)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.99"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
 
-// The request should still be processed (no panic); the limiter uses the raw addr as key.
-if w.Code != http.StatusOK {
-t.Fatalf("status: got %d, want 200", w.Code)
-}
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", w.Code)
+	}
 }

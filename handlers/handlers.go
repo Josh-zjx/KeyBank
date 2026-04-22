@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -27,13 +30,23 @@ type Store interface {
 
 // Handlers holds dependencies for all HTTP handler methods.
 type Handlers struct {
-	store  Store
-	logger *slog.Logger
+	store     Store
+	logger    *slog.Logger
+	templates *template.Template
 }
 
-// New creates a Handlers with the given store and logger.
-func New(store Store, logger *slog.Logger) *Handlers {
-	return &Handlers{store: store, logger: logger}
+// ParseTemplates loads the create/share page templates from fsys.
+func ParseTemplates(fsys fs.FS) (*template.Template, error) {
+	return template.ParseFS(fsys,
+		"templates/base.html",
+		"templates/create.html",
+		"templates/share.html",
+	)
+}
+
+// New creates a Handlers with the given store, logger, and templates.
+func New(store Store, logger *slog.Logger, templates *template.Template) *Handlers {
+	return &Handlers{store: store, logger: logger, templates: templates}
 }
 
 // CreateKeyResponse is the JSON body returned by POST /api/keys.
@@ -44,6 +57,14 @@ type CreateKeyResponse struct {
 
 type createKeyRequest struct {
 	TTL int `json:"ttl"` // seconds; 0 → defaultTTL
+}
+
+type pageData struct {
+	Title        string
+	BodyClass    string
+	BodyTemplate string
+	ScriptPath   string
+	ShareID      string
 }
 
 // CreateKey handles POST /api/keys.
@@ -121,12 +142,41 @@ func (h *Handlers) FetchKey(w http.ResponseWriter, r *http.Request) {
 
 // HomePage handles GET /.
 func (h *Handlers) HomePage(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
+	h.renderPage(w, pageData{
+		Title:        "Create a secure note",
+		BodyClass:    "page-create",
+		BodyTemplate: "create-body",
+		ScriptPath:   "/static/create.js",
+	})
 }
 
 // SharePage handles GET /share/{id}.
 func (h *Handlers) SharePage(w http.ResponseWriter, r *http.Request) {
+	h.renderPage(w, pageData{
+		Title:        "Open a shared note",
+		BodyClass:    "page-share",
+		BodyTemplate: "share-body",
+		ShareID:      r.PathValue("id"),
+	})
+}
+
+func (h *Handlers) renderPage(w http.ResponseWriter, data pageData) {
+	if h.templates == nil {
+		h.logger.Error("templates not configured")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	var body bytes.Buffer
+	if err := h.templates.ExecuteTemplate(&body, "base", data); err != nil {
+		h.logger.Error("templates.ExecuteTemplate", "err", err, "body_template", data.BodyTemplate)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body.Bytes())
 }
 
 func generateKey() (public, private []byte, err error) {

@@ -1,12 +1,17 @@
 package main
 
 import (
+	"embed"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 
 	"github.com/josh-zjx/keybank/handlers"
 )
+
+//go:embed templates/*.html static/*
+var assets embed.FS
 
 func main() {
 	cfg := loadConfig()
@@ -15,12 +20,22 @@ func main() {
 	slog.SetDefault(logger)
 
 	store := newRedisKeyStore(cfg.RedisAddr)
-	h := handlers.New(&storeAdapter{ks: store}, logger)
+	templates, err := handlers.ParseTemplates(assets)
+	if err != nil {
+		panic(err)
+	}
+	h := handlers.New(&storeAdapter{ks: store}, logger, templates)
+
+	staticFS, err := fs.Sub(assets, "static")
+	if err != nil {
+		panic(err)
+	}
 
 	createLimiter := newRedisRateLimiter(store.client, "create", cfg.RateLimitCreate)
 	fetchLimiter := newRedisRateLimiter(store.client, "fetch", cfg.RateLimitFetch)
 
 	mux := http.NewServeMux()
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 	mux.Handle("POST /api/keys", handlers.Chain(
 		handlers.MaxBodySize(64*1024),
 		handlers.RateLimit(createLimiter),

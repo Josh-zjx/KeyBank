@@ -1,0 +1,26 @@
+{{define "base"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} - KeyBank</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="{{.BodyClass}}">
+  <main class="shell">
+    <header class="hero">
+      <p class="eyebrow">KeyBank</p>
+      <h1>{{.Title}}</h1>
+      <p class="lead">The server stores only one-time private keys. Your message stays in this browser until the client-side crypto flow ships.</p>
+    </header>
+    {{if eq .BodyTemplate "create-body"}}
+      {{template "create-body" .}}
+    {{else if eq .BodyTemplate "share-body"}}
+      {{template "share-body" .}}
+    {{end}}
+  </main>
+  {{if .ScriptPath}}<script defer src="{{.ScriptPath}}"></script>{{end}}
+</body>
+</html>
+{{end}}

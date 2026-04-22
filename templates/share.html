@@ -1,0 +1,17 @@
+{{define "share-body"}}
+<section class="card stack">
+  <div>
+    <h2 class="section-title">Shared note shell</h2>
+    <p class="hint">Record ID</p>
+    <p class="record-id"><code>{{.ShareID}}</code></p>
+  </div>
+
+  <p>This page is ready for the later browser-side fetch and decrypt flow. Milestone 4 stops at the HTML shell.</p>
+
+  <div class="actions">
+    <button class="button" type="button" data-share-id="{{.ShareID}}">Decrypt</button>
+  </div>
+
+  <p id="share-status" class="status" data-state="idle">Decrypt is not wired yet. This page is ready for milestone 5 client logic.</p>
+</section>
+{{end}}
