@@ -154,6 +154,7 @@ func (h *Handlers) FetchKey(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("key fetched")
 	w.WriteHeader(http.StatusOK)
+	// #nosec G705 -- /api/keys/{id} intentionally returns PEM bytes, not HTML.
 	_, _ = w.Write(key)
 }
 

@@ -1,7 +1,17 @@
 const { defineConfig } = require("@playwright/test");
 
+const externalBaseURL = process.env.PLAYWRIGHT_BASE_URL;
 const port = process.env.PLAYWRIGHT_PORT || "4173";
-const baseURL = `http://localhost:${port}`;
+const baseURL = externalBaseURL || `http://127.0.0.1:${port}`;
+
+const webServer = externalBaseURL
+  ? undefined
+  : {
+      command: `PORT=${port} KEYBANK_STORE=mem AUTO_HIDE_SECONDS=1 go run .`,
+      url: baseURL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000
+    };
 
 module.exports = defineConfig({
   testDir: "./playwright",
@@ -15,10 +25,5 @@ module.exports = defineConfig({
     headless: true,
     trace: "on-first-retry"
   },
-  webServer: {
-    command: `PORT=${port} KEYBANK_STORE=mem AUTO_HIDE_SECONDS=1 go run .`,
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000
-  }
+  webServer
 });
