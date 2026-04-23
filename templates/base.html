@@ -25,7 +25,7 @@
       {{template "share-body" .}}
     {{end}}
   </main>
-  {{range .VendorScripts}}<script defer src="{{.}}"></script>{{end}}
+  {{range .VendorScripts}}<script defer src="{{.Src}}" integrity="{{.Integrity}}" crossorigin="anonymous"></script>{{end}}
   {{if .ScriptPath}}<script type="module" src="{{.ScriptPath}}"></script>{{end}}
 </body>
 </html>

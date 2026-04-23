@@ -22,6 +22,12 @@ const (
 	defaultAutoHideSeconds = 60
 )
 
+// VendorScript is a pinned external script reference used in page templates.
+type VendorScript struct {
+	Src       string
+	Integrity string
+}
+
 // Store is the minimal persistence interface handlers need.
 // storeAdapter in package main satisfies this implicitly.
 type Store interface {
@@ -73,7 +79,7 @@ type pageData struct {
 	BodyClass       string
 	BodyTemplate    string
 	ScriptPath      string
-	VendorScripts   []string
+	VendorScripts   []VendorScript
 	ShareID         string
 	AutoHideSeconds int
 }
@@ -119,7 +125,7 @@ func (h *Handlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("key created", "id", id)
+	h.logger.Info("key created")
 	body, err := json.Marshal(CreateKeyResponse{ID: id, PubPEM: string(pub)})
 	if err != nil {
 		h.logger.Error("json.Marshal", "err", err)
@@ -137,7 +143,7 @@ func (h *Handlers) FetchKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	key, err := h.store.Load(id)
 	if err != nil {
-		h.logger.Error("store.Load", "id", id, "err", err)
+		h.logger.Error("store.Load", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -146,7 +152,7 @@ func (h *Handlers) FetchKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("key fetched", "id", id)
+	h.logger.Info("key fetched")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(key)
 }
@@ -159,7 +165,10 @@ func (h *Handlers) HomePage(w http.ResponseWriter, r *http.Request) {
 		BodyClass:       "page-create",
 		BodyTemplate:    "create-body",
 		ScriptPath:      "/static/app.js",
-		VendorScripts:   []string{"/static/qrcode.js"},
+		VendorScripts: []VendorScript{{
+			Src:       "/static/qrcode.js",
+			Integrity: "sha384-ahLw45Nl1X/zUAno5v8A1m7qYEzDIOrQtPeIGkG/a+vFi9BC17OhLEhzDJZUHqN2",
+		}},
 		AutoHideSeconds: h.autoHide,
 	})
 }
@@ -202,13 +211,22 @@ func generateKey() (public, private []byte, err error) {
 		return nil, nil, err
 	}
 
+	privBytes, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, nil, err
+	}
 	private = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
+		Type:  "PRIVATE KEY",
+		Bytes: privBytes,
 	})
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(key.Public())
+	if err != nil {
+		return nil, nil, err
+	}
 	public = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PUBLIC KEY",
-		Bytes: x509.MarshalPKCS1PublicKey(key.Public().(*rsa.PublicKey)),
+		Type:  "PUBLIC KEY",
+		Bytes: pubBytes,
 	})
 
 	return

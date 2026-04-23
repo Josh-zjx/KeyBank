@@ -216,7 +216,7 @@ func TestStoreAdapterRoundTrip(t *testing.T) {
 	ks := newMemKeyStore()
 	adapter := &storeAdapter{ks: ks}
 
-	privPEM := []byte("-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----\n")
+	privPEM := []byte("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n")
 	id, err := adapter.Save(privPEM, time.Hour)
 	if err != nil {
 		t.Fatalf("Save: %v", err)

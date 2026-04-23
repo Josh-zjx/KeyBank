@@ -8,7 +8,7 @@ import (
 
 func TestRecordJSONRoundTrip(t *testing.T) {
 	original := Record{
-		PrivPEM:   "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----\n",
+		PrivPEM:   "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
 		CreatedAt: time.Now().Truncate(time.Millisecond),
 	}
 

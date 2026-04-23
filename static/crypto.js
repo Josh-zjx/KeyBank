@@ -39,159 +39,25 @@ function base64URLToBytes(value) {
   return base64ToBytes(value);
 }
 
-function trimLeadingZero(bytes) {
-  if (bytes.length > 1 && bytes[0] === 0) {
-    return bytes.subarray(1);
-  }
-  return bytes;
-}
-
-function decodePemBlock(pem, label) {
+function pemToBytes(pem, label) {
   const beginMarker = `-----BEGIN ${label}-----`;
   const endMarker = `-----END ${label}-----`;
   const beginIndex = pem.indexOf(beginMarker);
   const endIndex = pem.indexOf(endMarker);
-
   if (beginIndex === -1 || endIndex === -1 || endIndex <= beginIndex) {
     throw new Error(`Missing ${label} PEM block.`);
   }
-
-  const body = pem
-    .slice(beginIndex + beginMarker.length, endIndex)
-    .replace(/\s+/g, "");
-
+  const body = pem.slice(beginIndex + beginMarker.length, endIndex).replace(/\s+/g, "");
   if (body === "") {
     throw new Error(`Empty ${label} PEM block.`);
   }
-
   return base64ToBytes(body);
-}
-
-function readLength(bytes, offset) {
-  if (offset >= bytes.length) {
-    throw new Error("Unexpected end of ASN.1 input.");
-  }
-
-  const first = bytes[offset];
-  if ((first & 0x80) === 0) {
-    return { length: first, offset: offset + 1 };
-  }
-
-  const byteCount = first & 0x7f;
-  if (byteCount === 0 || byteCount > 4 || offset + 1 + byteCount > bytes.length) {
-    throw new Error("Unsupported ASN.1 length.");
-  }
-
-  let length = 0;
-  for (let i = 0; i < byteCount; i += 1) {
-    length = (length << 8) | bytes[offset + 1 + i];
-  }
-
-  return { length, offset: offset + 1 + byteCount };
-}
-
-function createDerReader(bytes) {
-  let offset = 0;
-
-  return {
-    readElement(expectedTag, name) {
-      if (offset >= bytes.length) {
-        throw new Error(`Unexpected end of ${name}.`);
-      }
-
-      const tag = bytes[offset];
-      offset += 1;
-
-      if (tag !== expectedTag) {
-        throw new Error(`Unexpected ASN.1 tag while reading ${name}.`);
-      }
-
-      const { length, offset: valueOffset } = readLength(bytes, offset);
-      const endOffset = valueOffset + length;
-      if (endOffset > bytes.length) {
-        throw new Error(`Truncated ASN.1 value while reading ${name}.`);
-      }
-
-      offset = endOffset;
-      return bytes.subarray(valueOffset, endOffset);
-    },
-    done() {
-      return offset === bytes.length;
-    }
-  };
-}
-
-function createSequenceReader(der) {
-  const root = createDerReader(der);
-  const content = root.readElement(0x30, "ASN.1 sequence");
-  if (!root.done()) {
-    throw new Error("Unexpected trailing ASN.1 data.");
-  }
-  return createDerReader(content);
-}
-
-function readInteger(reader, name) {
-  return trimLeadingZero(reader.readElement(0x02, name));
-}
-
-function parsePkcs1PublicKey(pem) {
-  const reader = createSequenceReader(decodePemBlock(pem, "RSA PUBLIC KEY"));
-  const modulus = readInteger(reader, "RSA modulus");
-  const exponent = readInteger(reader, "RSA public exponent");
-
-  if (!reader.done()) {
-    throw new Error("Unexpected trailing data in RSA public key.");
-  }
-
-  return {
-    kty: "RSA",
-    n: bytesToBase64URL(modulus),
-    e: bytesToBase64URL(exponent),
-    alg: "RSA-OAEP-256",
-    ext: true,
-    key_ops: ["encrypt"]
-  };
-}
-
-function parsePkcs1PrivateKey(pem) {
-  const reader = createSequenceReader(decodePemBlock(pem, "RSA PRIVATE KEY"));
-  readInteger(reader, "RSA version");
-
-  const parts = {
-    n: readInteger(reader, "RSA modulus"),
-    e: readInteger(reader, "RSA public exponent"),
-    d: readInteger(reader, "RSA private exponent"),
-    p: readInteger(reader, "RSA prime1"),
-    q: readInteger(reader, "RSA prime2"),
-    dp: readInteger(reader, "RSA exponent1"),
-    dq: readInteger(reader, "RSA exponent2"),
-    qi: readInteger(reader, "RSA coefficient")
-  };
-
-  if (!reader.done()) {
-    throw new Error("Unexpected trailing data in RSA private key.");
-  }
-
-  return {
-    kty: "RSA",
-    n: bytesToBase64URL(parts.n),
-    e: bytesToBase64URL(parts.e),
-    d: bytesToBase64URL(parts.d),
-    p: bytesToBase64URL(parts.p),
-    q: bytesToBase64URL(parts.q),
-    dp: bytesToBase64URL(parts.dp),
-    dq: bytesToBase64URL(parts.dq),
-    qi: bytesToBase64URL(parts.qi),
-    alg: "RSA-OAEP-256",
-    ext: true,
-    key_ops: ["decrypt"]
-  };
 }
 
 async function importRsaPublicKey(pem) {
   return crypto.subtle.importKey(
-    "jwk",
-    parsePkcs1PublicKey(pem),
+    "spki",
+    pemToBytes(pem, "PUBLIC KEY"),
     { name: "RSA-OAEP", hash: "SHA-256" },
     false,
     ["encrypt"]
@@ -200,8 +66,8 @@ async function importRsaPublicKey(pem) {
 
 async function importRsaPrivateKey(pem) {
   return crypto.subtle.importKey(
-    "jwk",
-    parsePkcs1PrivateKey(pem),
+    "pkcs8",
+    pemToBytes(pem, "PRIVATE KEY"),
     { name: "RSA-OAEP", hash: "SHA-256" },
     false,
     ["decrypt"]

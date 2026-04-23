@@ -98,7 +98,7 @@ func TestRedisRateLimiterBucketIsolation(t *testing.T) {
 	}
 }
 
-func TestRedisRateLimiterFailsOpenOnError(t *testing.T) {
+func TestRedisRateLimiterFailsClosedOnError(t *testing.T) {
 	mr := miniredis.RunT(t)
 	addr := mr.Addr()
 	client := goredis.NewClient(&goredis.Options{Addr: addr})
@@ -107,9 +107,9 @@ func TestRedisRateLimiterFailsOpenOnError(t *testing.T) {
 	// Close Redis to simulate an outage.
 	mr.Close()
 
-	// Should fail open (allow the request) rather than blocking.
-	if !rl.Allow("10.2.2.2") {
-		t.Fatal("expected fail-open (Allow=true) when Redis is down")
+	// Should fail closed (block the request) rather than allowing.
+	if rl.Allow("10.2.2.2") {
+		t.Fatal("expected fail-closed (Allow=false) when Redis is down")
 	}
 }
 

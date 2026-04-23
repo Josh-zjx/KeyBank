@@ -37,13 +37,13 @@ func newRedisRateLimiter(client *goredis.Client, bucket string, limit int) *redi
 }
 
 // Allow returns true if the IP has not exceeded the per-hour limit.
-// On Redis error it fails open (allows the request) to avoid blocking on outages.
+// On Redis error it fails closed (blocks the request) per mission principle 5.
 func (rl *redisRateLimiter) Allow(ip string) bool {
 	key := "rl:" + rl.bucket + ":" + ip
 	count, err := rl.script.Run(context.Background(), rl.client, []string{key}).Int()
 	if err != nil {
-		// Fail open: don't block requests if Redis is unavailable.
-		return true
+		// Fail closed: block requests if Redis is unavailable.
+		return false
 	}
 	return count <= rl.limit
 }
