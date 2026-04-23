@@ -1,0 +1,8 @@
+.git
+.github
+.copilot
+node_modules
+test-results
+playwright-report
+keybank
+*.log

@@ -1,0 +1,52 @@
+services:
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: ${PORT:-14000}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      KEYBANK_STORE: ${KEYBANK_STORE:-redis}
+      AUTO_HIDE_SECONDS: ${AUTO_HIDE_SECONDS:-60}
+      RATE_LIMIT_CREATE: ${RATE_LIMIT_CREATE:-30}
+      RATE_LIMIT_FETCH: ${RATE_LIMIT_FETCH:-60}
+    ports:
+      - "127.0.0.1:${PORT:-14000}:${PORT:-14000}"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2.9-alpine
+    profiles: ["caddy"]
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+    environment:
+      PORT: ${PORT:-14000}
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  redis_data:
+  caddy_data:
+  caddy_config:
