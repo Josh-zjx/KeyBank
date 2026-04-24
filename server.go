@@ -4,11 +4,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/josh-zjx/keybank/handlers"
 )
 
-func newAppHandler(assetFS fs.FS, store KeyStore, logger *slog.Logger, createLimiter, fetchLimiter handlers.RateLimiter, autoHideSeconds int) (http.Handler, error) {
+func newAppHandler(assetFS fs.FS, store KeyStore, logger *slog.Logger, createLimiter, fetchLimiter handlers.RateLimiter, autoHideSeconds int, maxTTL time.Duration, trustXFF bool) (http.Handler, error) {
 	templates, err := handlers.ParseTemplates(assetFS)
 	if err != nil {
 		return nil, err
@@ -22,19 +23,33 @@ func newAppHandler(assetFS fs.FS, store KeyStore, logger *slog.Logger, createLim
 		return nil, err
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-	mux.Handle("POST /api/keys", handlers.Chain(
-		handlers.MaxBodySize(64*1024),
-		handlers.RateLimit(createLimiter),
-	)(http.HandlerFunc(h.CreateKey)))
-	mux.Handle("GET /api/keys/{id}",
-		handlers.RateLimit(fetchLimiter)(http.HandlerFunc(h.FetchKey)))
-	mux.HandleFunc("GET /", h.HomePage)
-	mux.HandleFunc("GET /share/{id}", h.SharePage)
+	// Separate handler for static files: lighter security headers, cacheable
+	staticMux := http.NewServeMux()
+	staticMux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+	staticHandler := handlers.Chain(
+		handlers.PanicRecover(logger),
+		handlers.StaticHeaders(),
+	)(staticMux)
 
-	return handlers.Chain(
+	// Mux for all dynamic routes with full security headers including Cache-Control: no-store
+	dynamicMux := http.NewServeMux()
+	dynamicMux.Handle("POST /api/keys", handlers.Chain(
+		handlers.MaxBodySize(64*1024),
+		handlers.RateLimit(createLimiter, trustXFF),
+	)(http.HandlerFunc(h.CreateKey)))
+	dynamicMux.Handle("GET /api/keys/{id}",
+		handlers.RateLimit(fetchLimiter, trustXFF)(http.HandlerFunc(h.FetchKey)))
+	dynamicMux.HandleFunc("GET /", h.HomePage)
+	dynamicMux.HandleFunc("GET /share/{id}", h.SharePage)
+	dynamicHandler := handlers.Chain(
 		handlers.PanicRecover(logger),
 		handlers.SecurityHeaders(),
-	)(mux), nil
+	)(dynamicMux)
+
+	// Root mux routes /static/ to staticHandler, everything else to dynamicHandler
+	rootMux := http.NewServeMux()
+	rootMux.Handle("/static/", staticHandler)
+	rootMux.Handle("/", dynamicHandler)
+
+	return rootMux, nil
 }

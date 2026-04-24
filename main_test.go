@@ -14,7 +14,7 @@ import (
 func newTestMux(t *testing.T, store KeyStore) http.Handler {
 	t.Helper()
 
-	mux, err := newAppHandler(os.DirFS("."), store, slog.Default(), noopRateLimiter{}, noopRateLimiter{}, 60)
+	mux, err := newAppHandler(os.DirFS("."), store, slog.Default(), noopRateLimiter{}, noopRateLimiter{}, 60, 7*24*time.Hour, false)
 	if err != nil {
 		t.Fatalf("newAppHandler: %v", err)
 	}

@@ -161,11 +161,11 @@ func (h *Handlers) FetchKey(w http.ResponseWriter, r *http.Request) {
 // HomePage handles GET /.
 func (h *Handlers) HomePage(w http.ResponseWriter, r *http.Request) {
 	h.renderPage(w, pageData{
-		Title:           "Create a secure note",
-		Page:            "create",
-		BodyClass:       "page-create",
-		BodyTemplate:    "create-body",
-		ScriptPath:      "/static/app.js",
+		Title:        "Create a secure note",
+		Page:         "create",
+		BodyClass:    "page-create",
+		BodyTemplate: "create-body",
+		ScriptPath:   "/static/app.js",
 		VendorScripts: []VendorScript{{
 			Src:       "/static/qrcode.js",
 			Integrity: "sha384-ahLw45Nl1X/zUAno5v8A1m7qYEzDIOrQtPeIGkG/a+vFi9BC17OhLEhzDJZUHqN2",

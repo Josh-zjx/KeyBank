@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strings"
 )
 
 // Middleware is an HTTP handler wrapper.
@@ -39,7 +40,8 @@ func PanicRecover(logger *slog.Logger) Middleware {
 	}
 }
 
-// SecurityHeaders sets production security headers on every response.
+// SecurityHeaders sets production security headers on share and retrieval responses.
+// Sets Cache-Control: no-store to prevent caching of sensitive content.
 func SecurityHeaders() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +51,23 @@ func SecurityHeaders() Middleware {
 				"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'")
 			h.Set("Referrer-Policy", "no-referrer")
 			h.Set("Cache-Control", "no-store")
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("X-Content-Type-Options", "nosniff")
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// StaticHeaders sets security headers for static assets, without Cache-Control: no-store
+// to allow browser caching of CSS, JS, and other static files.
+func StaticHeaders() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := w.Header()
+			h.Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
+			h.Set("Content-Security-Policy",
+				"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'")
+			h.Set("Referrer-Policy", "no-referrer")
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("X-Content-Type-Options", "nosniff")
 			next.ServeHTTP(w, r)
@@ -74,10 +93,11 @@ type RateLimiter interface {
 
 // RateLimit returns a middleware that enforces the given limiter per client IP.
 // Blocked requests receive 429 Too Many Requests.
-func RateLimit(limiter RateLimiter) Middleware {
+// trustXFF controls whether to trust the X-Forwarded-For header.
+func RateLimit(limiter RateLimiter, trustXFF bool) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := remoteIP(r)
+			ip := remoteIP(r, trustXFF)
 			if !limiter.Allow(ip) {
 				http.Error(w, "too many requests", http.StatusTooManyRequests)
 				return
@@ -87,9 +107,22 @@ func RateLimit(limiter RateLimiter) Middleware {
 	}
 }
 
-// remoteIP returns the host portion of r.RemoteAddr (port stripped).
-// It does not trust X-Forwarded-For to prevent IP spoofing.
-func remoteIP(r *http.Request) string {
+// remoteIP returns the client IP address.
+// When trustXFF is true and X-Forwarded-For is present, returns the first (leftmost) IP from that header.
+// Otherwise returns the host portion of r.RemoteAddr (port stripped).
+func remoteIP(r *http.Request, trustXFF bool) string {
+	if trustXFF {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// Take the first (leftmost) IP from the X-Forwarded-For list.
+			ips := strings.Split(xff, ",")
+			if len(ips) > 0 {
+				if first := strings.TrimSpace(ips[0]); first != "" {
+					return first
+				}
+			}
+		}
+	}
+	// Fall back to RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

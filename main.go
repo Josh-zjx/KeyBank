@@ -39,7 +39,7 @@ func main() {
 		fetchLimiter = newRedisRateLimiter(redisStore.client, "fetch", cfg.RateLimitFetch)
 	}
 
-	app, err := newAppHandler(assets, store, logger, createLimiter, fetchLimiter, cfg.AutoHideSeconds)
+	app, err := newAppHandler(assets, store, logger, createLimiter, fetchLimiter, cfg.AutoHideSeconds, cfg.MaxTTL, cfg.TrustXFF)
 	if err != nil {
 		logger.Error("handler init", "err", err)
 		os.Exit(1)

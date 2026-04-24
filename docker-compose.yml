@@ -13,6 +13,8 @@ services:
       AUTO_HIDE_SECONDS: ${AUTO_HIDE_SECONDS:-60}
       RATE_LIMIT_CREATE: ${RATE_LIMIT_CREATE:-30}
       RATE_LIMIT_FETCH: ${RATE_LIMIT_FETCH:-60}
+      MAX_TTL: ${MAX_TTL:-168h}
+      TRUST_XFF: ${TRUST_XFF:-false}
     ports:
       - "127.0.0.1:${PORT:-14000}:${PORT:-14000}"
 

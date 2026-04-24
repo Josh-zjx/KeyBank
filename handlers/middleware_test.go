@@ -79,6 +79,35 @@ func TestSecurityHeadersOnAllEndpoints(t *testing.T) {
 	}
 }
 
+func TestStaticHeadersOmitsCacheControl(t *testing.T) {
+	// StaticHeaders should include security headers but NOT Cache-Control: no-store
+	handler := newMiddlewareMux(t, handlers.StaticHeaders())
+
+	mustHaveHeaders := map[string]string{
+		"Strict-Transport-Security": "max-age=15552000; includeSubDomains",
+		"Content-Security-Policy":   "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'",
+		"Referrer-Policy":           "no-referrer",
+		"X-Frame-Options":           "DENY",
+		"X-Content-Type-Options":    "nosniff",
+	}
+
+	mustNotHaveHeader := "Cache-Control"
+
+	req := httptest.NewRequest(http.MethodGet, "/style.css", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	for header, want := range mustHaveHeaders {
+		if got := w.Header().Get(header); got != want {
+			t.Errorf("%s: got %q, want %q", header, got, want)
+		}
+	}
+
+	if got := w.Header().Get(mustNotHaveHeader); got != "" {
+		t.Errorf("%s: got %q, want empty/absent", mustNotHaveHeader, got)
+	}
+}
+
 // --- Panic recovery ---
 
 func TestPanicRecoverReturns500(t *testing.T) {
@@ -169,7 +198,7 @@ func TestMaxBodySizeAllowsSmallBody(t *testing.T) {
 func TestRateLimitAllowsUpToLimit(t *testing.T) {
 	const limit = 3
 	limiter := &fakeRateLimiter{limit: limit}
-	handler := handlers.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := handlers.RateLimit(limiter, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -187,7 +216,7 @@ func TestRateLimitAllowsUpToLimit(t *testing.T) {
 func TestRateLimitBlocksAfterLimit(t *testing.T) {
 	const limit = 3
 	limiter := &fakeRateLimiter{limit: limit}
-	handler := handlers.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := handlers.RateLimit(limiter, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -211,7 +240,7 @@ func TestRateLimitBlocksAfterLimit(t *testing.T) {
 func TestRateLimitDifferentIPsAreIndependent(t *testing.T) {
 	const limit = 1
 	limiter := &fakeRateLimiter{limit: limit}
-	handler := handlers.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := handlers.RateLimit(limiter, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -273,7 +302,7 @@ func TestChainAppliesMiddlewareInOrder(t *testing.T) {
 
 func TestRateLimitIPWithoutPort(t *testing.T) {
 	limiter := &fakeRateLimiter{limit: 1}
-	handler := handlers.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := handlers.RateLimit(limiter, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -284,5 +313,68 @@ func TestRateLimitIPWithoutPort(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200", w.Code)
+	}
+}
+
+func TestRateLimitWithXForwardedFor(t *testing.T) {
+	tests := []struct {
+		name       string
+		trustXFF   bool
+		xff        string
+		remoteAddr string
+	}{
+		{
+			name:       "trustXFF=false ignores X-Forwarded-For",
+			trustXFF:   false,
+			xff:        "203.0.113.5, 10.0.0.1",
+			remoteAddr: "127.0.0.1:8000",
+		},
+		{
+			name:       "trustXFF=true uses first IP from X-Forwarded-For",
+			trustXFF:   true,
+			xff:        "203.0.113.5, 10.0.0.1",
+			remoteAddr: "127.0.0.1:8000",
+		},
+		{
+			name:       "trustXFF=true falls back to RemoteAddr when XFF absent",
+			trustXFF:   true,
+			xff:        "",
+			remoteAddr: "192.168.1.1:9999",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limiter := &fakeRateLimiter{limit: 1}
+			handler := handlers.RateLimit(limiter, tt.trustXFF)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			// First request should succeed.
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.xff != "" {
+				req.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("first request: got %d, want 200", w.Code)
+			}
+
+			// Second request from same IP should be rate limited.
+			req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+			req2.RemoteAddr = tt.remoteAddr
+			if tt.xff != "" {
+				req2.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			w2 := httptest.NewRecorder()
+			handler.ServeHTTP(w2, req2)
+
+			if w2.Code != http.StatusTooManyRequests {
+				t.Errorf("second request from same IP: got %d, want 429", w2.Code)
+			}
+		})
 	}
 }
