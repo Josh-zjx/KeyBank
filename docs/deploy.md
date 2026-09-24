@@ -27,7 +27,9 @@ At minimum, set:
   other than `14000`
 
 Leave `REDIS_ADDR=redis:6379` and `KEYBANK_STORE=redis` when using the shipped
-Compose stack.
+Compose stack. Leave `TRUST_XFF=true` when using Caddy so rate limits use each
+client's forwarded address; set it to `false` if the app is exposed directly
+without a reverse proxy.
 
 ## 2. Start the stack
 

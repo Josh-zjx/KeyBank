@@ -21,6 +21,7 @@ type fakeStore struct {
 	data    map[string][]byte
 	nextID  string
 	lastTTL time.Duration
+	saves   int
 }
 
 func newFakeStore() *fakeStore {
@@ -31,6 +32,7 @@ func newFakeStore() *fakeStore {
 }
 
 func (f *fakeStore) Save(key []byte, ttl time.Duration) (string, error) {
+	f.saves++
 	f.lastTTL = ttl
 	f.data[f.nextID] = key
 	return f.nextID, nil
@@ -68,8 +70,9 @@ func newServeMux(h *handlers.Handlers) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/keys", h.CreateKey)
 	mux.HandleFunc("GET /api/keys/{id}", h.FetchKey)
-	mux.HandleFunc("GET /", h.HomePage)
+	mux.HandleFunc("GET /{$}", h.HomePage)
 	mux.HandleFunc("GET /share/{id}", h.SharePage)
+	mux.HandleFunc("GET /", h.NotFoundPage)
 	return mux
 }
 
@@ -177,10 +180,29 @@ func TestHomePageOK(t *testing.T) {
 		`textarea id="message"`,
 		`name="expiryPreset"`,
 		`data-page="create"`,
+		`data-max-ttl-seconds="604800"`,
 		`data-share-url`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("home page missing %q", want)
+		}
+	}
+}
+
+func TestUnknownGETRendersNotFoundPage(t *testing.T) {
+	mux := newServeMux(newTestHandlers(t, newFakeStore()))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/does-not-exist", nil))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type: got %q, want HTML", got)
+	}
+	for _, want := range []string{"Page not found", "Nothing is here", `href="/"`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("error page missing %q", want)
 		}
 	}
 }
@@ -208,6 +230,9 @@ func TestSharePageOK(t *testing.T) {
 		`data-share-id="abc123"`,
 		`data-page="share"`,
 		`data-autohide-seconds="60"`,
+		`data-hide-countdown`,
+		`aria-label="60 seconds remaining"`,
+		"Visible in",
 		"Ready to fetch the one-time private key and decrypt locally.",
 	} {
 		if !strings.Contains(body, want) {
@@ -298,6 +323,58 @@ func TestCreateKeyTTLTooHigh(t *testing.T) {
 	}
 	if body["error"] != "invalid_ttl" {
 		t.Errorf("error = %q, want %q", body["error"], "invalid_ttl")
+	}
+}
+
+func TestCreateKeyRejectsMalformedJSON(t *testing.T) {
+	for _, body := range []string{
+		`{bad`,
+		`{"ttl":60.5}`,
+		`{"ttl":60}{}`,
+		`null`,
+		`{"tll":60}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			store := newFakeStore()
+			w := postWithBody(newServeMux(newTestHandlers(t, store)), body)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status: got %d, want 400", w.Code)
+			}
+			var response map[string]string
+			if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if response["error"] != "invalid_request" {
+				t.Errorf("error = %q, want invalid_request", response["error"])
+			}
+			if store.saves != 0 {
+				t.Fatalf("Save called %d times for invalid JSON", store.saves)
+			}
+		})
+	}
+}
+
+func TestConfiguredMaxTTLIsEnforced(t *testing.T) {
+	store := newFakeStore()
+	h := newTestHandlers(t, store)
+	h.SetMaxTTL(time.Hour)
+	mux := newServeMux(h)
+
+	if w := postWithBody(mux, `{"ttl":3601}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("over-limit status: got %d, want 400", w.Code)
+	}
+	w := postWithBody(mux, "")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("default request status: got %d, want 201", w.Code)
+	}
+	if store.lastTTL != time.Hour {
+		t.Fatalf("default TTL: got %v, want configured maximum 1h", store.lastTTL)
+	}
+
+	home := httptest.NewRecorder()
+	mux.ServeHTTP(home, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(home.Body.String(), `data-max-ttl-seconds="3600"`) {
+		t.Fatal("home page does not expose configured max TTL")
 	}
 }
 

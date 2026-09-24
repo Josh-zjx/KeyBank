@@ -164,6 +164,24 @@ textarea:focus, input[type="number"]:focus, .button:focus, .modal:focus {
   color: #6b7280;
   font-size: 0.95rem;
 }
+.countdown-value {
+  display: inline-grid;
+  min-width: 1.5rem;
+  place-items: center;
+  color: #047857;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.countdown-value[data-infinite="true"] {
+  font-size: 1.25em;
+  line-height: 1;
+}
+.plaintext-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
 
 .status {
   padding: 0.9rem 1rem;
@@ -248,6 +266,9 @@ code, .record-id code, .plaintext {
   }
   .button {
     width: 100%;
+  }
+  .plaintext-toolbar .button {
+    width: auto;
   }
   .expiry-options {
     grid-template-columns: 1fr;

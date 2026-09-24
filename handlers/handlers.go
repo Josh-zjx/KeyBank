@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"html/template"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -17,7 +18,7 @@ import (
 
 const (
 	minTTL                 = 60 * time.Second
-	maxTTL                 = 7 * 24 * time.Hour
+	maxAllowedTTL          = 7 * 24 * time.Hour
 	defaultTTL             = 24 * time.Hour
 	defaultAutoHideSeconds = 60
 )
@@ -41,6 +42,7 @@ type Handlers struct {
 	logger    *slog.Logger
 	templates *template.Template
 	autoHide  int
+	maxTTL    time.Duration
 }
 
 // ParseTemplates loads the create/share page templates from fsys.
@@ -48,18 +50,31 @@ func ParseTemplates(fsys fs.FS) (*template.Template, error) {
 	return template.ParseFS(fsys,
 		"templates/base.html",
 		"templates/create.html",
+		"templates/error.html",
 		"templates/share.html",
 	)
 }
 
 // New creates a Handlers with the given store, logger, and templates.
 func New(store Store, logger *slog.Logger, templates *template.Template) *Handlers {
-	return &Handlers{store: store, logger: logger, templates: templates, autoHide: defaultAutoHideSeconds}
+	return &Handlers{
+		store: store, logger: logger, templates: templates,
+		autoHide: defaultAutoHideSeconds,
+		maxTTL:   maxAllowedTTL,
+	}
 }
 
 func (h *Handlers) SetAutoHideSeconds(seconds int) {
 	if seconds > 0 {
 		h.autoHide = seconds
+	}
+}
+
+// SetMaxTTL sets the deployment-specific expiry ceiling without allowing the
+// service-wide seven-day maximum to be exceeded.
+func (h *Handlers) SetMaxTTL(ttl time.Duration) {
+	if ttl >= minTTL && ttl <= maxAllowedTTL {
+		h.maxTTL = ttl
 	}
 }
 
@@ -70,7 +85,7 @@ type CreateKeyResponse struct {
 }
 
 type createKeyRequest struct {
-	TTL int `json:"ttl"` // seconds; 0 → defaultTTL
+	TTL int64 `json:"ttl"` // seconds; 0 → defaultTTL
 }
 
 type pageData struct {
@@ -82,34 +97,48 @@ type pageData struct {
 	VendorScripts   []VendorScript
 	ShareID         string
 	AutoHideSeconds int
+	MaxTTLSeconds   int64
+	StatusCode      int
 }
 
 // CreateKey handles POST /api/keys.
 // Generates an RSA-4096 keypair, persists the private key, returns id + public key as JSON.
-// Accepts an optional JSON body {"ttl": <seconds>}. Defaults to 24h if absent.
-// Returns 400 {"error":"invalid_ttl"} if the TTL is outside [60s, 7d].
+// Accepts an optional JSON body {"ttl": <seconds>}. The default is the lesser
+// of 24 hours and the configured maximum. Invalid JSON returns invalid_request.
+// TTL values outside the configured [60s, maximum] range return invalid_ttl.
 func (h *Handlers) CreateKey(w http.ResponseWriter, r *http.Request) {
-	var req createKeyRequest
-	// Ignore EOF (empty body) — zero value applies the default TTL.
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+	var req *createKeyRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		h.writeDecodeError(w, err)
+		return
+	} else if err == nil {
+		if req == nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_request")
 			return
 		}
-		// Any other decode error (malformed JSON, etc.) falls through;
-		// req.TTL remains 0 and defaults to defaultTTL below.
+		// Only one JSON value is valid; reject trailing values or garbage.
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+			h.writeDecodeError(w, err)
+			return
+		}
+	}
+	if req == nil {
+		req = &createKeyRequest{}
 	}
 
-	ttl := time.Duration(req.TTL) * time.Second
-	if ttl == 0 {
+	var ttl time.Duration
+	if req.TTL == 0 {
 		ttl = defaultTTL
-	}
-	if ttl < minTTL || ttl > maxTTL {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_ttl"})
+		if ttl > h.maxTTL {
+			ttl = h.maxTTL
+		}
+	} else if req.TTL < int64(minTTL/time.Second) || req.TTL > int64(h.maxTTL/time.Second) {
+		writeJSONError(w, http.StatusBadRequest, "invalid_ttl")
 		return
+	} else {
+		ttl = time.Duration(req.TTL) * time.Second
 	}
 
 	pub, priv, err := generateKey()
@@ -135,6 +164,21 @@ func (h *Handlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_, _ = w.Write(body)
+}
+
+func (h *Handlers) writeDecodeError(w http.ResponseWriter, err error) {
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "request_body_too_large")
+		return
+	}
+	writeJSONError(w, http.StatusBadRequest, "invalid_request")
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
 }
 
 // FetchKey handles GET /api/keys/{id}.
@@ -171,6 +215,18 @@ func (h *Handlers) HomePage(w http.ResponseWriter, r *http.Request) {
 			Integrity: "sha384-ahLw45Nl1X/zUAno5v8A1m7qYEzDIOrQtPeIGkG/a+vFi9BC17OhLEhzDJZUHqN2",
 		}},
 		AutoHideSeconds: h.autoHide,
+		MaxTTLSeconds:   int64(h.maxTTL / time.Second),
+	})
+}
+
+// NotFoundPage renders the placeholder page for unknown GET routes.
+func (h *Handlers) NotFoundPage(w http.ResponseWriter, r *http.Request) {
+	h.renderPage(w, pageData{
+		Title:        "Page not found",
+		Page:         "error",
+		BodyClass:    "page-error",
+		BodyTemplate: "error-body",
+		StatusCode:   http.StatusNotFound,
 	})
 }
 
@@ -202,7 +258,11 @@ func (h *Handlers) renderPage(w http.ResponseWriter, data pageData) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+	status := data.StatusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.WriteHeader(status)
 	_, _ = w.Write(body.Bytes())
 }
 

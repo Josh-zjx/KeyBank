@@ -10,7 +10,6 @@
 
   <div class="actions">
     <button class="button" type="button" data-decrypt-button>Decrypt</button>
-    <button class="button button-secondary" type="button" data-keep-visible hidden>Keep visible</button>
   </div>
 
   <p id="share-status" class="status" data-state="idle">Ready to fetch the one-time private key and decrypt locally.</p>
@@ -19,7 +18,17 @@
 <section class="card stack" data-share-result hidden>
   <div class="stack stack-compact">
     <h2 class="section-title">Plaintext</h2>
-    <p class="hint">Auto-hides after {{.AutoHideSeconds}} seconds unless you click "Keep visible".</p>
+    <div class="plaintext-toolbar">
+      <p class="hint">
+        Visible in
+        <span
+          class="countdown-value"
+          data-hide-countdown
+          role="timer"
+          aria-label="{{.AutoHideSeconds}} {{if eq .AutoHideSeconds 1}}second{{else}}seconds{{end}} remaining">{{.AutoHideSeconds}}</span><span data-hide-countdown-unit> seconds</span>
+      </p>
+      <button class="button button-secondary" type="button" data-keep-visible hidden>Keep visible</button>
+    </div>
   </div>
   <pre class="plaintext" data-share-plaintext></pre>
 </section>

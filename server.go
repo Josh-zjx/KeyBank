@@ -17,6 +17,7 @@ func newAppHandler(assetFS fs.FS, store KeyStore, logger *slog.Logger, createLim
 
 	h := handlers.New(&storeAdapter{ks: store}, logger, templates)
 	h.SetAutoHideSeconds(autoHideSeconds)
+	h.SetMaxTTL(maxTTL)
 
 	staticFS, err := fs.Sub(assetFS, "static")
 	if err != nil {
@@ -39,8 +40,9 @@ func newAppHandler(assetFS fs.FS, store KeyStore, logger *slog.Logger, createLim
 	)(http.HandlerFunc(h.CreateKey)))
 	dynamicMux.Handle("GET /api/keys/{id}",
 		handlers.RateLimit(fetchLimiter, trustXFF)(http.HandlerFunc(h.FetchKey)))
-	dynamicMux.HandleFunc("GET /", h.HomePage)
+	dynamicMux.HandleFunc("GET /{$}", h.HomePage)
 	dynamicMux.HandleFunc("GET /share/{id}", h.SharePage)
+	dynamicMux.HandleFunc("GET /", h.NotFoundPage)
 	dynamicHandler := handlers.Chain(
 		handlers.PanicRecover(logger),
 		handlers.SecurityHeaders(),

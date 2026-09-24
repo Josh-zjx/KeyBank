@@ -111,7 +111,12 @@ func RateLimit(limiter RateLimiter, trustXFF bool) Middleware {
 // When trustXFF is true and X-Forwarded-For is present, returns the first (leftmost) IP from that header.
 // Otherwise returns the host portion of r.RemoteAddr (port stripped).
 func remoteIP(r *http.Request, trustXFF bool) string {
-	if trustXFF {
+	directIP := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		directIP = host
+	}
+
+	if trustXFF && isTrustedProxy(directIP) {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			// Take the first (leftmost) IP from the X-Forwarded-For list.
 			ips := strings.Split(xff, ",")
@@ -122,10 +127,12 @@ func remoteIP(r *http.Request, trustXFF bool) string {
 			}
 		}
 	}
-	// Fall back to RemoteAddr
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return directIP
+}
+
+// isTrustedProxy limits forwarded-address trust to a directly connected
+// loopback or private-network reverse proxy, such as the shipped Caddy service.
+func isTrustedProxy(address string) bool {
+	ip := net.ParseIP(address)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 }

@@ -22,27 +22,57 @@ function syncCustomInput(form, customInput) {
   customInput.disabled = !customSelected;
 }
 
-function selectedTTL(form) {
+function selectedTTL(form, maxTTL) {
   const selected = form.querySelector('input[name="expiryPreset"]:checked');
   if (!selected || selected.value === "") {
-    return defaultTTLSeconds;
+    return Math.min(defaultTTLSeconds, maxTTL);
   }
 
   if (selected.value !== "custom") {
-    return Number(selected.value);
+    const ttl = Number(selected.value);
+    if (ttl > maxTTL) {
+      throw new Error("That expiry exceeds this server's configured limit.");
+    }
+    return ttl;
   }
 
   const minutes = Number(form.querySelector("#custom-ttl").value);
-  if (!Number.isFinite(minutes) || minutes < 1) {
-    throw new Error("Enter a custom expiry of at least 1 minute.");
+  if (!Number.isInteger(minutes) || minutes < 1) {
+    throw new Error("Enter a custom expiry in whole minutes (at least 1).");
   }
 
   const ttl = minutes * 60;
-  if (ttl > maxTTLSeconds) {
-    throw new Error("Custom expiry must be 7 days or less.");
+  if (ttl > maxTTL) {
+    throw new Error("Custom expiry exceeds this server's configured limit.");
   }
 
   return ttl;
+}
+
+function configureExpiryOptions(form, customInput, maxTTL) {
+  const presets = Array.from(form.querySelectorAll('input[name="expiryPreset"]'));
+  for (const input of presets) {
+    if (input.value === "custom") {
+      continue;
+    }
+    input.disabled = Number(input.value) > maxTTL;
+    if (input.disabled) {
+      input.checked = false;
+    }
+  }
+
+  const maxMinutes = Math.max(1, Math.floor(maxTTL / 60));
+  customInput.max = String(maxMinutes);
+  if (Number(customInput.value) > maxMinutes) {
+    customInput.value = String(maxMinutes);
+  }
+
+  if (!presets.some((input) => input.checked && !input.disabled)) {
+    const availablePreset = presets
+      .filter((input) => input.value !== "custom" && !input.disabled)
+      .at(-1);
+    (availablePreset || presets.find((input) => input.value === "custom")).checked = true;
+  }
 }
 
 async function confirmLargeMessage(dialog, message, bytes) {
@@ -88,22 +118,30 @@ async function copyToClipboard(value) {
 
 function renderQRCode(container, value) {
   if (!container) {
-    return;
+    return false;
   }
 
   container.innerHTML = "";
   if (typeof window.QRCode !== "function") {
-    return;
+    container.textContent = "QR code unavailable. Copy the share URL instead.";
+    return false;
   }
 
-  new window.QRCode(container, {
-    text: value,
-    width: 192,
-    height: 192,
-    colorDark: "#111827",
-    colorLight: "#ffffff",
-    correctLevel: window.QRCode.CorrectLevel.M
-  });
+  try {
+    new window.QRCode(container, {
+      text: value,
+      width: 192,
+      height: 192,
+      colorDark: "#111827",
+      colorLight: "#ffffff",
+      correctLevel: window.QRCode.CorrectLevel.M
+    });
+    return true;
+  } catch {
+    container.innerHTML = "";
+    container.textContent = "This link is too long for a QR code. Copy the share URL instead.";
+    return false;
+  }
 }
 
 function maybeShowHTTPWarning(root) {
@@ -130,7 +168,12 @@ async function initCreatePage(root) {
   const openShareLink = root.querySelector("[data-open-share]");
   const qrContainer = root.querySelector("[data-qr-code]");
   const sizeWarning = root.querySelector("[data-size-warning]");
+  const configuredMaxTTL = Number(root.dataset.maxTtlSeconds);
+  const maxTTL = Number.isFinite(configuredMaxTTL) && configuredMaxTTL >= 60
+    ? Math.min(configuredMaxTTL, maxTTLSeconds)
+    : maxTTLSeconds;
 
+  configureExpiryOptions(form, customInput, maxTTL);
   form.querySelectorAll('input[name="expiryPreset"]').forEach((input) => {
     input.addEventListener("change", () => syncCustomInput(form, customInput));
   });
@@ -161,7 +204,7 @@ async function initCreatePage(root) {
 
     let ttl;
     try {
-      ttl = selectedTTL(form);
+      ttl = selectedTTL(form, maxTTL);
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Enter a valid expiry.", "error");
       return;
@@ -203,13 +246,16 @@ async function initCreatePage(root) {
 
       shareURL.value = url;
       result.hidden = false;
-      renderQRCode(qrContainer, url);
+      const qrRendered = renderQRCode(qrContainer, url);
 
       if (openShareLink) {
         openShareLink.href = url;
       }
 
-      setStatus(status, "Link generated. The message stayed in this browser; only the encrypted fragment belongs in the URL.", "success");
+      const message = qrRendered
+        ? "Link generated. The message stayed in this browser; only the encrypted fragment belongs in the URL."
+        : "Link generated. This link is too long for a QR code, so copy the share URL manually.";
+      setStatus(status, message, "success");
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Link generation failed.", "error");
     }
@@ -247,14 +293,37 @@ function consumePlaintext(root, plaintext, autoHideSeconds, status) {
   const result = root.querySelector("[data-share-result]");
   const output = root.querySelector("[data-share-plaintext]");
   const keepVisibleButton = root.querySelector("[data-keep-visible]");
+  const countdown = root.querySelector("[data-hide-countdown]");
+  const countdownUnit = root.querySelector("[data-hide-countdown-unit]");
 
   let hideTimer = null;
+  let countdownTimer = null;
 
   function clearHideTimer() {
     if (hideTimer !== null) {
       window.clearTimeout(hideTimer);
       hideTimer = null;
     }
+    if (countdownTimer !== null) {
+      window.clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }
+
+  function renderRemaining(seconds) {
+    countdown.textContent = String(seconds);
+    countdown.dataset.infinite = "false";
+    const unit = seconds === 1 ? "second" : "seconds";
+    countdown.setAttribute("aria-label", `${seconds} ${unit} remaining`);
+    countdownUnit.textContent = " seconds";
+    countdownUnit.hidden = false;
+  }
+
+  function renderInfinite() {
+    countdown.textContent = "∞";
+    countdown.dataset.infinite = "true";
+    countdown.setAttribute("aria-label", "No time limit");
+    countdownUnit.hidden = false;
   }
 
   output.textContent = plaintext;
@@ -262,20 +331,29 @@ function consumePlaintext(root, plaintext, autoHideSeconds, status) {
   keepVisibleButton.hidden = false;
   keepVisibleButton.disabled = false;
   keepVisibleButton.textContent = "Keep visible";
+  renderRemaining(autoHideSeconds);
 
   keepVisibleButton.onclick = () => {
     clearHideTimer();
+    renderInfinite();
     keepVisibleButton.disabled = true;
     keepVisibleButton.textContent = "Visible until you leave this page";
     setStatus(status, "Plaintext will stay visible until you leave or reload this page.", "success");
   };
 
   clearHideTimer();
+  const hideAt = Date.now() + (autoHideSeconds * 1000);
+  countdownTimer = window.setInterval(() => {
+    const remaining = Math.max(0, Math.ceil((hideAt - Date.now()) / 1000));
+    renderRemaining(remaining);
+  }, 250);
   hideTimer = window.setTimeout(() => {
+    clearHideTimer();
     output.textContent = "";
     result.hidden = true;
     keepVisibleButton.hidden = true;
-    setStatus(status, `Plaintext hidden again after ${autoHideSeconds} seconds.`, "success");
+    const unit = autoHideSeconds === 1 ? "second" : "seconds";
+    setStatus(status, `Plaintext hidden again after ${autoHideSeconds} ${unit}.`, "success");
   }, autoHideSeconds * 1000);
 }
 

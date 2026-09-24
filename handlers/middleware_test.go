@@ -34,8 +34,9 @@ func newMiddlewareMux(t *testing.T, mw handlers.Middleware) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/keys", h.CreateKey)
 	mux.HandleFunc("GET /api/keys/{id}", h.FetchKey)
-	mux.HandleFunc("GET /", h.HomePage)
+	mux.HandleFunc("GET /{$}", h.HomePage)
 	mux.HandleFunc("GET /share/{id}", h.SharePage)
+	mux.HandleFunc("GET /", h.NotFoundPage)
 
 	return mw(mux)
 }
@@ -376,5 +377,27 @@ func TestRateLimitWithXForwardedFor(t *testing.T) {
 				t.Errorf("second request from same IP: got %d, want 429", w2.Code)
 			}
 		})
+	}
+}
+
+func TestRateLimitIgnoresXForwardedForFromPublicPeer(t *testing.T) {
+	limiter := &fakeRateLimiter{limit: 1}
+	handler := handlers.RateLimit(limiter, true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i, xff := range []string{"203.0.113.1", "203.0.113.2"} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "198.51.100.10:1234"
+		req.Header.Set("X-Forwarded-For", xff)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		want := http.StatusOK
+		if i == 1 {
+			want = http.StatusTooManyRequests
+		}
+		if w.Code != want {
+			t.Fatalf("request %d: got %d, want %d", i+1, w.Code, want)
+		}
 	}
 }

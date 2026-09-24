@@ -12,7 +12,8 @@
     class="shell"
     data-page="{{.Page}}"
     data-share-id="{{.ShareID}}"
-    data-autohide-seconds="{{.AutoHideSeconds}}">
+    data-autohide-seconds="{{.AutoHideSeconds}}"
+    data-max-ttl-seconds="{{.MaxTTLSeconds}}">
     <header class="hero">
       <p class="eyebrow">KeyBank</p>
       <h1>{{.Title}}</h1>
@@ -23,6 +24,8 @@
       {{template "create-body" .}}
     {{else if eq .BodyTemplate "share-body"}}
       {{template "share-body" .}}
+    {{else if eq .BodyTemplate "error-body"}}
+      {{template "error-body" .}}
     {{end}}
   </main>
   {{range .VendorScripts}}<script defer src="{{.Src}}" integrity="{{.Integrity}}" crossorigin="anonymous"></script>{{end}}

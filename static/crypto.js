@@ -3,9 +3,18 @@ const decoder = new TextDecoder();
 
 const base64URLPattern = /^[A-Za-z0-9_-]+$/;
 
-function bytesToBase64(bytes) {
+function chunkSizeForPlaintext(plaintextByteLength) {
+  if (plaintextByteLength <= 0x80) {
+    return 0x80;
+  }
+  if (plaintextByteLength <= 0x800) {
+    return 0x800;
+  }
+  return 0x8000;
+}
+
+function bytesToBase64(bytes, chunkSize) {
   let binary = "";
-  const chunkSize = 0x8000;
 
   for (let i = 0; i < bytes.length; i += chunkSize) {
     const chunk = bytes.subarray(i, i + chunkSize);
@@ -28,8 +37,8 @@ function base64ToBytes(base64) {
   return bytes;
 }
 
-function bytesToBase64URL(bytes) {
-  return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+function bytesToBase64URL(bytes, chunkSize) {
+  return bytesToBase64(bytes, chunkSize).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function base64URLToBytes(value) {
@@ -83,14 +92,16 @@ export async function encryptMessage(pubPem, plaintext) {
   const aesKey = await generateAesKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintextBytes = encoder.encode(plaintext);
+  // Size the serialization chunks from the actual UTF-8 plaintext bytes.
+  const chunkSize = chunkSizeForPlaintext(plaintextBytes.byteLength);
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, plaintextBytes);
   const rawKey = await crypto.subtle.exportKey("raw", aesKey);
   const wrapped = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawKey);
 
   return {
-    wrapped: bytesToBase64URL(new Uint8Array(wrapped)),
-    iv: bytesToBase64URL(iv),
-    ct: bytesToBase64URL(new Uint8Array(ciphertext))
+    wrapped: bytesToBase64URL(new Uint8Array(wrapped), chunkSize),
+    iv: bytesToBase64URL(iv, chunkSize),
+    ct: bytesToBase64URL(new Uint8Array(ciphertext), chunkSize)
   };
 }
 
