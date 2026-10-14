@@ -6,6 +6,6 @@
     "playwright:install": "playwright install chromium"
   },
   "devDependencies": {
-    "@playwright/test": "1.39.0"
+    "@playwright/test": "1.63.0"
   }
 }
