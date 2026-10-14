@@ -1,35 +1,63 @@
 {{define "share-body"}}
-<section class="card stack">
-  <div>
-    <h2 class="section-title">Shared note</h2>
-    <p class="hint">Record ID</p>
-    <p class="record-id"><code>{{.ShareID}}</code></p>
-  </div>
+<header class="hero">
+  <p class="eyebrow">One-time note</p>
+  <h1>{{.Title}}</h1>
+  <p class="lead">Someone sent you an encrypted note. The message is inside your link; the key that unlocks it is waiting on KeyBank, for one use only.</p>
+</header>
 
-  <p>The encrypted payload should already be in this page’s URL fragment. Decryption happens locally after a one-time fetch of the private key.</p>
+<div class="workspace">
+  <div class="stack">
+    <section class="card stack envelope" data-share-card data-state="ready" aria-labelledby="envelope-title">
+      <div class="envelope-head">
+        <span class="seal"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg></span>
+        <div>
+          <h2 id="envelope-title" class="section-title">Shared note</h2>
+          <p class="hint">Record ID <code class="record-id">{{.ShareID}}</code></p>
+        </div>
+      </div>
 
-  <div class="actions">
-    <button class="button" type="button" data-decrypt-button>Decrypt</button>
-  </div>
-
-  <p id="share-status" class="status" data-state="idle">Ready to fetch the one-time private key and decrypt locally.</p>
-</section>
-
-<section class="card stack" data-share-result hidden>
-  <div class="stack stack-compact">
-    <h2 class="section-title">Plaintext</h2>
-    <div class="plaintext-toolbar">
-      <p class="hint">
-        Visible in
-        <span
-          class="countdown-value"
-          data-hide-countdown
-          role="timer"
-          aria-label="{{.AutoHideSeconds}} {{if eq .AutoHideSeconds 1}}second{{else}}seconds{{end}} remaining">{{.AutoHideSeconds}}</span><span data-hide-countdown-unit> seconds</span>
+      <p class="callout">
+        <svg class="icon" aria-hidden="true"><use href="#i-flame"/></svg>
+        <span><strong>This note can be read only once.</strong> Decrypting fetches its key, and KeyBank deletes that key in the same step. After that, the link stops working for you and for anyone else.</span>
       </p>
-      <button class="button button-secondary" type="button" data-keep-visible hidden>Keep visible</button>
-    </div>
+
+      {{template "anatomy"}}
+
+      <div class="actions" data-decrypt-actions>
+        <button class="button" type="button" data-decrypt-button>
+          <svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>
+          Decrypt note
+        </button>
+      </div>
+
+      <p id="share-status" class="status" data-state="idle" role="status">Nothing has been fetched yet. Decrypting fetches the one-time private key; the note is decrypted in this browser.</p>
+    </section>
+
+    <section class="card stack" data-share-result aria-labelledby="plaintext-title" hidden>
+      <div class="plaintext-head">
+        <h2 id="plaintext-title" class="section-title">Plaintext</h2>
+        <div class="plaintext-toolbar">
+          <p class="hint">
+            Visible in
+            <span
+              class="countdown-value"
+              data-hide-countdown
+              role="timer"
+              aria-label="{{.AutoHideSeconds}} {{if eq .AutoHideSeconds 1}}second{{else}}seconds{{end}} remaining">{{.AutoHideSeconds}}</span><span data-hide-countdown-unit> seconds</span>
+          </p>
+          <button class="button button-secondary button-small" type="button" data-copy-plaintext>
+            <svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>
+            <span data-copy-label>Copy</span>
+          </button>
+          <button class="button button-secondary button-small" type="button" data-keep-visible hidden>Keep visible</button>
+        </div>
+      </div>
+      <div class="countdown-bar" data-countdown-bar></div>
+      <pre class="plaintext" data-share-plaintext></pre>
+      <p class="hint">Decrypted in this browser. The key no longer exists anywhere, so this is the only copy: save it somewhere safe if you need it.</p>
+    </section>
   </div>
-  <pre class="plaintext" data-share-plaintext></pre>
-</section>
+
+  {{template "ledger" .}}
+</div>
 {{end}}

@@ -4,21 +4,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>{{.Title}} - KeyBank</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="{{.BodyClass}}">
+  {{template "icons"}}
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg class="icon brand-mark" aria-hidden="true"><use href="#i-key"/></svg>
+      KeyBank
+    </a>
+    <nav class="topbar-nav" aria-label="Site">
+      <a href="/#how-it-works">How it works</a>
+      <a href="/">New note</a>
+    </nav>
+  </header>
   <main
     class="shell"
     data-page="{{.Page}}"
     data-share-id="{{.ShareID}}"
     data-autohide-seconds="{{.AutoHideSeconds}}"
     data-max-ttl-seconds="{{.MaxTTLSeconds}}">
-    <header class="hero">
-      <p class="eyebrow">KeyBank</p>
-      <h1>{{.Title}}</h1>
-      <p class="lead">The server stores only one-time private keys. The encrypted payload stays in the share link fragment and never reaches the server.</p>
-    </header>
     <p class="banner banner-warning" data-http-warning hidden>Warning: this page is running over plain HTTP. Anyone on the network path could tamper with what you receive.</p>
     {{if eq .BodyTemplate "create-body"}}
       {{template "create-body" .}}
@@ -28,8 +35,71 @@
       {{template "error-body" .}}
     {{end}}
   </main>
+  <footer class="footer">
+    <p><strong>KeyBank keeps the key, not the message.</strong> No accounts, no cookies, no analytics.</p>
+    <p>Open source and small enough to audit in an afternoon — <a href="https://github.com/josh-zjx/keybank" rel="noreferrer noopener">read the code</a>.</p>
+  </footer>
   {{range .VendorScripts}}<script defer src="{{.Src}}" integrity="{{.Integrity}}" crossorigin="anonymous"></script>{{end}}
   {{if .ScriptPath}}<script type="module" src="{{.ScriptPath}}"></script>{{end}}
 </body>
 </html>
+{{end}}
+
+{{/* The ledger lists every request this page sends to KeyBank, exactly as sent. app.js fills it in. */}}
+{{define "ledger"}}
+<aside class="ledger-panel" aria-labelledby="ledger-title">
+  <div class="ledger-head">
+    <h2 id="ledger-title" class="panel-title">
+      <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
+      What KeyBank sees
+    </h2>
+    <p class="hint">Every request this page sends to the server, exactly as sent.</p>
+  </div>
+  <ol class="ledger" data-ledger aria-live="polite"></ol>
+  <p class="ledger-foot">
+    <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+    <span>Your message is in none of these. Besides these requests, the page loads only its own stylesheet and scripts. Verify it yourself in your browser’s developer tools, under <em>Network</em>.</span>
+  </p>
+  <template data-ledger-entry>
+    <li class="ledger-entry">
+      <p class="ledger-request"><span class="ledger-method"></span> <code class="ledger-path"></code></p>
+      <dl class="ledger-io">
+        <dt>Sent</dt><dd data-sent></dd>
+        <dt>Got back</dt><dd data-received></dd>
+      </dl>
+    </li>
+  </template>
+</aside>
+{{end}}
+
+{{/* Splits a share link into the part the server receives and the part that never leaves the browser. */}}
+{{define "anatomy"}}
+<figure class="anatomy">
+  <figcaption class="panel-title">Anatomy of the link</figcaption>
+  <dl class="anatomy-parts">
+    <div class="anatomy-part anatomy-server">
+      <dt><code data-anatomy-path></code></dt>
+      <dd><strong>Sent to KeyBank.</strong> Only the key’s ID, which unlocks nothing on its own.</dd>
+    </div>
+    <div class="anatomy-part anatomy-local">
+      <dt><code data-anatomy-fragment></code></dt>
+      <dd><strong>Never leaves the browser.</strong> The encrypted note<span data-anatomy-size></span>. Browsers do not send anything after <code>#</code> to a server.</dd>
+    </div>
+  </dl>
+</figure>
+{{end}}
+
+{{define "icons"}}
+<svg class="icon-sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4.5"/><path d="m11.2 11.8 8.8-8.8M16.5 6.5l2.5 2.5M13.8 9.2l2 2"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="7" rx="1.75"/><rect x="3.5" y="13" width="17" height="7" rx="1.75"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3c.6 3.4 5.5 5.6 5.5 10.5a5.5 5.5 0 0 1-11 0c0-2.6 1.3-4.3 2.8-5.6.2 1.9 1 3.1 2.2 3.6C11 8.9 10.8 6 12 3Z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5.5 15H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V3.5M7.5 8 12 3.5 16.5 8M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
 {{end}}

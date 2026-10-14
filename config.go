@@ -74,12 +74,12 @@ func envDuration(key string, def time.Duration) time.Duration {
 	if v := os.Getenv(key); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			if d < minDuration {
-				slog.Warn("duration below minimum, using default", "key", key, "value", v, "min", minDuration, "default", def)
+				slog.Warn("duration below minimum, using default", "key", key, "min", minDuration, "default", def)
 				return def
 			}
 			return d
 		}
-		slog.Warn("failed to parse duration, using default", "key", key, "value", v, "default", def)
+		slog.Warn("failed to parse duration, using default", "key", key, "default", def)
 	}
 	return def
 }

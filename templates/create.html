@@ -1,71 +1,156 @@
 {{define "create-body"}}
-<section class="card">
-  <form class="stack" data-create-form novalidate>
-    <label class="field" for="message">
-      <span class="field-label">Message</span>
-      <textarea id="message" rows="10" placeholder="Type the secret you want to encrypt entirely in this browser."></textarea>
-    </label>
+<header class="hero">
+  <p class="eyebrow">Zero-knowledge note sharing</p>
+  <h1>{{.Title}}</h1>
+  <p class="lead">KeyBank keeps the <em>key</em>, not the message. Your note is encrypted in this browser and travels inside the link itself. The server holds only a one-time key, and destroys it the moment the link is opened.</p>
+</header>
 
-    <fieldset class="field">
-      <legend class="field-label">Expiry</legend>
-      <div class="expiry-options">
-        <label class="choice">
-          <input type="radio" name="expiryPreset" value="3600">
-          <span>1 hour</span>
-        </label>
-        <label class="choice">
-          <input type="radio" name="expiryPreset" value="86400" checked>
-          <span>1 day</span>
-        </label>
-        <label class="choice">
-          <input type="radio" name="expiryPreset" value="604800">
-          <span>7 days</span>
-        </label>
-        <label class="choice choice-custom">
-          <input type="radio" name="expiryPreset" value="custom">
-          <span>Custom</span>
-          <input id="custom-ttl" type="number" min="1" max="10080" step="1" value="60" inputmode="numeric" aria-label="Custom expiry in minutes">
-          <span>minutes</span>
-        </label>
+<div class="workspace">
+  <div class="stack">
+    <section class="card">
+      <form class="stack" data-create-form novalidate>
+        <div class="field">
+          <div class="field-head">
+            <label class="field-label" for="message">Message</label>
+            <span class="tag tag-local">
+              <svg class="icon" aria-hidden="true"><use href="#i-browser"/></svg>
+              Stays in this browser
+            </span>
+          </div>
+          <textarea id="message" rows="8" placeholder="A password, a recovery code, a private note…" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+          <p class="field-meta" data-message-meta>Short notes make short links.</p>
+        </div>
+
+        <fieldset class="field">
+          <legend class="field-label">Link expires after</legend>
+          <div class="segmented">
+            <label class="segment">
+              <input type="radio" name="expiryPreset" value="3600">
+              <span>1 hour</span>
+            </label>
+            <label class="segment">
+              <input type="radio" name="expiryPreset" value="86400" checked>
+              <span>1 day</span>
+            </label>
+            <label class="segment">
+              <input type="radio" name="expiryPreset" value="604800">
+              <span>7 days</span>
+            </label>
+            <label class="segment">
+              <input type="radio" name="expiryPreset" value="custom">
+              <span>Custom</span>
+            </label>
+            <div class="custom-ttl" data-custom-ttl hidden>
+              <input id="custom-ttl" type="number" min="1" max="10080" step="1" value="60" inputmode="numeric" aria-label="Custom expiry in minutes">
+              <span>minutes</span>
+            </div>
+          </div>
+          <p class="hint">Or the first time it is opened, whichever comes first.</p>
+        </fieldset>
+
+        <div class="submit-row">
+          <button class="button" type="submit">
+            <svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>
+            Generate link
+          </button>
+          <p id="create-status" class="status" data-state="idle" role="status">Only the expiry you pick is sent to KeyBank.</p>
+        </div>
+      </form>
+    </section>
+
+    <section id="create-result" class="card stack" aria-labelledby="result-title" hidden>
+      <div class="stack stack-compact">
+        <h2 id="result-title" class="section-title" tabindex="-1">Your one-time link is ready</h2>
+        <p class="hint" data-result-expiry></p>
       </div>
-    </fieldset>
 
-    <div class="actions">
-      <button class="button" type="submit">Generate link</button>
-      <p class="hint">The message never leaves this page. KeyBank only sees the request for a one-time public key and the chosen expiry.</p>
+      <div class="link-row">
+        <label class="visually-hidden" for="share-url">Share URL</label>
+        <input id="share-url" class="link-input" data-share-url type="text" readonly spellcheck="false">
+        <button class="button" type="button" data-copy-link>
+          <svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>
+          <span data-copy-label>Copy link</span>
+        </button>
+      </div>
+
+      <div class="result-grid">
+        {{template "anatomy"}}
+        <figure class="qr">
+          <div class="qr-code" data-qr-code role="img" aria-label="QR code for the generated share URL"></div>
+          <figcaption class="hint">Scan to open on another device.</figcaption>
+        </figure>
+      </div>
+
+      <div class="actions">
+        <button class="button button-secondary" type="button" data-native-share hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>
+          Share…
+        </button>
+        <a class="button button-secondary" data-open-share target="_blank" rel="noreferrer noopener">
+          <svg class="icon" aria-hidden="true"><use href="#i-open"/></svg>
+          Open share page
+        </a>
+        <button class="button button-quiet" type="button" data-new-note>
+          <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+          New note
+        </button>
+      </div>
+    </section>
+  </div>
+
+  {{template "ledger" .}}
+</div>
+
+<section id="how-it-works" class="how">
+  <div class="how-intro">
+    <p class="eyebrow">How it works</p>
+    <h2 class="section-title">Store the key, not the message</h2>
+    <p class="lead">Most secret-sharing services keep your encrypted message and promise to delete it. KeyBank inverts that: the encrypted message lives in the link you share, and the server keeps only a single-use key.</p>
+  </div>
+
+  <ol class="steps">
+    <li class="step">
+      <span class="step-icon step-server"><svg class="icon" aria-hidden="true"><use href="#i-key"/></svg></span>
+      <h3>KeyBank mints a key pair</h3>
+      <p>Your browser asks for a fresh RSA-4096 key pair. KeyBank stores the private half and hands back the public half. All it learns is how long to keep the key.</p>
+    </li>
+    <li class="step">
+      <span class="step-icon step-local"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg></span>
+      <h3>Your browser seals the note</h3>
+      <p>The note is encrypted with a random AES-256-GCM key, which is in turn locked with the public key. Both go into the link after the <code>#</code>, the part a browser never sends to a server.</p>
+    </li>
+    <li class="step">
+      <span class="step-icon step-burn"><svg class="icon" aria-hidden="true"><use href="#i-flame"/></svg></span>
+      <h3>The key is used once, then gone</h3>
+      <p>Opening the link fetches the private key, and KeyBank deletes it in the same atomic step. The recipient’s browser decrypts the note locally, and the link never works again.</p>
+    </li>
+  </ol>
+
+  <div class="compare">
+    <div class="compare-col">
+      <h3>A typical secret-sharing service</h3>
+      <ul>
+        <li>Keeps your encrypted message on its disk until it is read or expires.</li>
+        <li>Asks you to trust that it really deletes the message.</li>
+        <li>Handles notes of any length.</li>
+      </ul>
     </div>
-  </form>
-</section>
-
-<section class="card stack" aria-live="polite">
-  <h2 class="section-title">Generated link</h2>
-  <p id="create-status" class="status" data-state="idle">Ready to encrypt your message in this browser.</p>
-  <div id="create-result" class="stack" hidden>
-    <label class="field" for="share-url">
-      <span class="field-label">Share URL</span>
-      <textarea id="share-url" data-share-url rows="5" readonly></textarea>
-    </label>
-    <div class="actions">
-      <button class="button button-secondary" type="button" data-copy-link>Copy link</button>
-      <a class="button button-secondary" data-open-share target="_blank" rel="noreferrer noopener">Open share page</a>
-    </div>
-    <div class="stack">
-      <div>
-        <h3 class="section-subtitle">QR code</h3>
-        <p class="hint">Shorter notes create smaller share URLs and more reliable QR codes.</p>
-      </div>
-      <div class="qr-shell">
-        <div class="qr-code" data-qr-code aria-label="QR code for the generated share URL"></div>
-      </div>
+    <div class="compare-col compare-keybank">
+      <h3>KeyBank</h3>
+      <ul>
+        <li>Never receives your message, not even encrypted. A stolen key is useless without the link.</li>
+        <li>Reading the note is what deletes the key: fetch and delete are one step.</li>
+        <li>The note travels inside the link, so it is best for short secrets.</li>
+      </ul>
     </div>
   </div>
 </section>
 
 <dialog class="modal" data-size-warning>
   <form method="dialog" class="stack">
-    <h2 class="section-title">Large message warning</h2>
+    <h2 class="section-title">This is a long note</h2>
     <p data-size-warning-text>This note is larger than 100 KB once encoded as UTF-8. That can make the final share link unwieldy.</p>
-    <p class="hint">You can continue, but the resulting URL may be difficult to copy, scan, or open on every device.</p>
+    <p class="hint">The encrypted note lives inside the link, so a long note means a long link. You can continue, but it may be hard to copy, scan, or open on every device.</p>
     <div class="actions">
       <button class="button button-secondary" value="cancel">Cancel</button>
       <button class="button" value="confirm">Encrypt anyway</button>

@@ -233,7 +233,7 @@ func TestSharePageOK(t *testing.T) {
 		`data-hide-countdown`,
 		`aria-label="60 seconds remaining"`,
 		"Visible in",
-		"Ready to fetch the one-time private key and decrypt locally.",
+		"Nothing has been fetched yet. Decrypting fetches the one-time private key",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("share page missing %q", want)
