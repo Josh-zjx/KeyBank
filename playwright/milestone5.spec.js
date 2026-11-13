@@ -15,8 +15,8 @@ function tamperShareURL(shareURL) {
   const url = new URL(shareURL);
   const params = new URLSearchParams(url.hash.slice(1));
   const ciphertext = params.get("c");
-  const replacement = ciphertext.endsWith("A") ? "B" : "A";
-  params.set("c", `${ciphertext.slice(0, -1)}${replacement}`);
+  const replacement = ciphertext.startsWith("A") ? "B" : "A";
+  params.set("c", `${replacement}${ciphertext.slice(1)}`);
   url.hash = params.toString();
   return url.toString();
 }
@@ -120,7 +120,7 @@ test("keeps long share links usable when they exceed QR capacity", async ({ brow
 test("rejects fractional custom minutes before requesting a key", async ({ page }) => {
   let createRequests = 0;
   page.on("request", (request) => {
-    if (request.method() === "POST" && request.url().endsWith("/api/keys")) {
+    if (request.method() === "POST" && request.url().endsWith("/api/v1/keys")) {
       createRequests += 1;
     }
   });

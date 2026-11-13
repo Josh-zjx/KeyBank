@@ -1,5 +1,5 @@
 import { createKey } from "./api.js";
-import { encryptMessage } from "./crypto.js";
+import { encryptMessage, ensureCryptoSupport } from "./crypto.js";
 import { buildShareURL, estimateLinkLength, qrCapacity } from "./link.js";
 import { copyText, formatDuration, plural, renderAnatomy, setStatus } from "./ui.js";
 
@@ -18,7 +18,7 @@ function describeMessage(plaintext) {
   }
 
   const bytes = byteLength(plaintext);
-  const linkLength = estimateLinkLength(bytes);
+  const linkLength = estimateLinkLength(bytes, document.querySelector("#key-type").value);
   const qr = linkLength <= qrCapacity ? "fits in a QR code" : "too long for a QR code";
   return `${plural(bytes, "byte")} · link ≈ ${plural(linkLength, "character")} · ${qr}`;
 }
@@ -123,6 +123,8 @@ function renderQRCode(container, value) {
 export function initCreatePage(root, ledger) {
   const form = root.querySelector("[data-create-form]");
   const messageInput = form.querySelector("#message");
+  const keyType = form.querySelector("#key-type");
+  const passphraseInput = form.querySelector("#passphrase");
   const messageMeta = form.querySelector("[data-message-meta]");
   const customInput = form.querySelector("#custom-ttl");
   const customField = form.querySelector("[data-custom-ttl]");
@@ -161,6 +163,9 @@ export function initCreatePage(root, ledger) {
     });
   }
 
+  keyType.addEventListener("change", () => {
+    messageMeta.textContent = describeMessage(messageInput.value);
+  });
   messageInput.addEventListener("input", () => {
     messageMeta.textContent = describeMessage(messageInput.value);
   });
@@ -205,6 +210,11 @@ export function initCreatePage(root, ledger) {
       return;
     }
 
+    const passphrase = passphraseInput.value;
+    if (byteLength(passphrase) > 1024) {
+      setStatus(status, "Use a passphrase of at most 1,024 UTF-8 bytes.", "error");
+      return;
+    }
     let ttl;
     try {
       ttl = selectedTTL(form, maxTTL);
@@ -221,11 +231,18 @@ export function initCreatePage(root, ledger) {
 
     result.hidden = true;
     submitButton.disabled = true;
-    setStatus(status, "Requesting a one-time keypair and encrypting locally…", "working");
+    setStatus(status, "Requesting a one-time key and encrypting locally…", "working");
 
     try {
-      const { id, pub_pem: pubPem } = await createKey(ledger, ttl);
-      const url = buildShareURL(id, await encryptMessage(pubPem, plaintext));
+      // Check before asking for a key, so an unsupported browser does not leave one behind.
+      await ensureCryptoSupport(keyType.value);
+      const options = { type: keyType.value, ttl };
+      if (passphrase) {
+        options.passphrase = passphrase;
+      }
+      const reply = await createKey(ledger, options);
+      const url = buildShareURL(reply.id, await encryptMessage(reply, plaintext), Boolean(passphrase));
+      passphraseInput.value = "";
 
       shareURL.value = url;
       openShareLink.href = url;

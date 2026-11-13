@@ -4,5 +4,10 @@
 
 {$SITE_ADDRESS} {
     encode zstd gzip
-    reverse_proxy app:{$PORT}
+    handle /api/* {
+        reverse_proxy api:14000
+    }
+    handle {
+        reverse_proxy demo:14001
+    }
 }

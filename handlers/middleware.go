@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"strings"
 )
@@ -32,9 +33,64 @@ func PanicRecover(logger *slog.Logger) Middleware {
 						"panic", rec,
 						"stack", string(debug.Stack()),
 					)
-					http.Error(w, "internal server error", http.StatusInternalServerError)
+					writeJSONError(w, http.StatusInternalServerError, "internal_error")
 				}
 			}()
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// CORS grants JSON POST access only to explicitly configured origins. Same-host
+// requests also work behind the shipped TLS proxy without a CORS configuration.
+func CORS(origins []string) Middleware {
+	allowed := make(map[string]bool, len(origins))
+	for _, origin := range origins {
+		allowed[origin] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Vary", "Origin")
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			parsed, err := url.Parse(origin)
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			} else {
+				peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+				if isTrustedProxy(peer) && r.Header.Get("X-Forwarded-Proto") == "https" {
+					scheme = "https"
+				}
+			}
+			sameHost := err == nil && parsed.Scheme == scheme && parsed.Host == r.Host && parsed.User == nil && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == ""
+			if !allowed[origin] && !sameHost {
+				writeJSONError(w, http.StatusForbidden, "origin_not_allowed")
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			if r.Method == http.MethodOptions {
+				w.Header().Add("Vary", "Access-Control-Request-Method")
+				w.Header().Add("Vary", "Access-Control-Request-Headers")
+				method := r.Header.Get("Access-Control-Request-Method")
+				if method != http.MethodPost && method != http.MethodGet {
+					writeJSONError(w, 403, "origin_not_allowed")
+					return
+				}
+				for _, header := range strings.Split(r.Header.Get("Access-Control-Request-Headers"), ",") {
+					if header = strings.TrimSpace(header); header != "" && !strings.EqualFold(header, "content-type") {
+						writeJSONError(w, 403, "origin_not_allowed")
+						return
+					}
+				}
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 			next.ServeHTTP(w, r)
 		})
 	}

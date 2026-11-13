@@ -28,15 +28,9 @@ func (f *fakeRateLimiter) Allow(ip string) bool {
 
 // newMiddlewareMux registers all four routes with the provided middleware applied globally.
 func newMiddlewareMux(t *testing.T, mw handlers.Middleware) http.Handler {
-	store := newFakeStore()
-	h := newTestHandlers(t, store)
-
+	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/keys", h.CreateKey)
-	mux.HandleFunc("GET /api/keys/{id}", h.FetchKey)
-	mux.HandleFunc("GET /{$}", h.HomePage)
-	mux.HandleFunc("GET /share/{id}", h.SharePage)
-	mux.HandleFunc("GET /", h.NotFoundPage)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	return mw(mux)
 }
@@ -47,8 +41,8 @@ var securityHeaderCases = []struct {
 	method string
 	path   string
 }{
-	{http.MethodPost, "/api/keys"},
-	{http.MethodGet, "/api/keys/some-id"},
+	{http.MethodPost, "/api/v1/keys"},
+	{http.MethodPost, "/api/v1/keys/some-id/fetch"},
 	{http.MethodGet, "/"},
 	{http.MethodGet, "/share/some-id"},
 }
@@ -160,13 +154,13 @@ func TestMaxBodySizeWith413ViaCreateKey(t *testing.T) {
 	h := newTestHandlers(t, store)
 
 	mux := http.NewServeMux()
-	mux.Handle("POST /api/keys",
+	mux.Handle("POST /api/v1/keys",
 		handlers.MaxBodySize(64*1024)(http.HandlerFunc(h.CreateKey)))
 
 	padding := strings.Repeat("a", 66000)
 	body := `{"x":"` + padding + `"}`
 
-	req := httptest.NewRequest(http.MethodPost, "/api/keys", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -181,10 +175,10 @@ func TestMaxBodySizeAllowsSmallBody(t *testing.T) {
 	h := newTestHandlers(t, store)
 
 	mux := http.NewServeMux()
-	mux.Handle("POST /api/keys",
+	mux.Handle("POST /api/v1/keys",
 		handlers.MaxBodySize(64*1024)(http.HandlerFunc(h.CreateKey)))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/keys", strings.NewReader(`{"ttl":300}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(`{"type":"ecc","ttl":300}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)

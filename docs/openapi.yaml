@@ -1,0 +1,225 @@
+openapi: 3.1.0
+info:
+  title: KeyBank API
+  version: 1.0.0
+  description: >-
+    Independent one-time X25519 and AES-256 key generation/retrieval. All key
+    material is raw 32-byte unpadded base64url. Production requires TLS.
+    Passphrases gate retrieval and never derive keys or encrypt stored records.
+servers:
+  - url: http://localhost:14000
+    description: Local development only; use HTTPS in production.
+paths:
+  /api/v1/keys:
+    post:
+      operationId: createKey
+      summary: Generate a one-time key
+      description: >-
+        Returns an ECC public key or an AES-256 key and its ID. The private or
+        symmetric key is retained until one successful fetch or expiry.
+        Requires exactly one JSON object, no duplicate/unknown/null fields,
+        valid UTF-8, and at most 16384 request bytes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  enum: [ecc, aes256]
+                  description: ecc means X25519 key agreement, not signing.
+                ttl:
+                  description: Seconds; omitted/zero means min(24h, MAX_TTL). Nonzero must not exceed deployment MAX_TTL.
+                  oneOf:
+                    - type: integer
+                      const: 0
+                    - type: integer
+                      minimum: 60
+                      maximum: 604800
+                passphrase:
+                  $ref: '#/components/schemas/Passphrase'
+            examples:
+              ecc:
+                value: {type: ecc, ttl: 3600}
+              protectedAES:
+                value: {type: aes256, ttl: 3600, passphrase: separately shared passphrase}
+      responses:
+        '201':
+          description: Key created. Cache-Control is no-store.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ECCCreated'
+                  - $ref: '#/components/schemas/AESKey'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/keys/{id}/fetch:
+    post:
+      operationId: fetchKey
+      summary: Authenticate and permanently consume a key
+      description: >-
+        Returns the ECC private/public pair or the identical AES key created
+        earlier. Wrong/missing passphrases never consume keys or refresh TTL.
+        Unprotected keys ignore supplied credentials. GET never consumes keys.
+        Concurrent successful authentication produces only one successful
+        consumer. A lost response cannot be recovered or retried successfully.
+        Body limit and JSON rules match creation. Cache-Control is no-store.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            $ref: '#/components/schemas/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                passphrase:
+                  $ref: '#/components/schemas/Passphrase'
+            examples:
+              unprotected:
+                value: {}
+              protected:
+                value: {passphrase: separately shared passphrase}
+      responses:
+        '200':
+          description: Key consumed and returned directly over the transport.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ECCFetched'
+                  - $ref: '#/components/schemas/AESKey'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: not_found (missing, expired, consumed, or malformed ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /healthz:
+    get:
+      operationId: healthcheck
+      summary: Process liveness (does not probe Redis)
+      responses:
+        '200':
+          description: Process is serving requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, const: ok}
+components:
+  schemas:
+    ID:
+      type: string
+      pattern: '^[0-9a-f]{32}$'
+    KeyBytes:
+      type: string
+      pattern: '^[A-Za-z0-9_-]{43}$'
+      description: Canonical unpadded base64url encoding of exactly 32 raw bytes.
+    Passphrase:
+      type: string
+      maxLength: 1024
+      description: >-
+        At most 1024 UTF-8 bytes (not characters); exact matching, without
+        trimming or normalization. Empty/omitted disables protection on create.
+        Sent directly over TLS; never include it in URLs or body logs.
+    ECCCreated:
+      type: object
+      additionalProperties: false
+      required: [id, type, public_key]
+      properties:
+        id: {$ref: '#/components/schemas/ID'}
+        type: {type: string, const: ecc}
+        public_key: {$ref: '#/components/schemas/KeyBytes'}
+    ECCFetched:
+      type: object
+      additionalProperties: false
+      required: [id, type, public_key, private_key]
+      properties:
+        id: {$ref: '#/components/schemas/ID'}
+        type: {type: string, const: ecc}
+        public_key: {$ref: '#/components/schemas/KeyBytes'}
+        private_key:
+          $ref: '#/components/schemas/KeyBytes'
+          description: Raw X25519 private scalar; not PKCS#8 or PEM.
+    AESKey:
+      type: object
+      additionalProperties: false
+      required: [id, type, key]
+      properties:
+        id: {$ref: '#/components/schemas/ID'}
+        type: {type: string, const: aes256}
+        key: {$ref: '#/components/schemas/KeyBytes'}
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_request, invalid_type, invalid_ttl, invalid_passphrase, origin_not_allowed, not_found, method_not_allowed, request_body_too_large, unsupported_media_type, internal_error]
+  responses:
+    InvalidRequest:
+      description: invalid_request, invalid_type, or invalid_ttl. Nothing consumed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Forbidden:
+      description: invalid_passphrase or origin_not_allowed. Nothing consumed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    MethodNotAllowed:
+      description: method_not_allowed. Allow header names the permitted method.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    TooLarge:
+      description: request_body_too_large. Nothing consumed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    UnsupportedMediaType:
+      description: unsupported_media_type. Send application/json.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    InternalError:
+      description: internal_error. No key material disclosed. Consumption may be uncertain on backend/network failure.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
