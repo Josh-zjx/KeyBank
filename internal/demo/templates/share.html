@@ -30,7 +30,12 @@
         </button>
       </div>
 
-      <p id="share-status" class="status" data-state="idle" role="status">Nothing has been fetched yet. Decrypting fetches the one-time private key; the note is decrypted in this browser.</p>
+      <div class="field" data-passphrase-field hidden>
+        <label class="field-label" for="fetch-passphrase">Passphrase</label>
+        <input id="fetch-passphrase" type="password" autocomplete="off" spellcheck="false">
+        <p class="hint">Enter the passphrase provided separately by the sender.</p>
+      </div>
+      <p id="share-status" class="status" data-state="idle" role="status">Nothing has been fetched yet. Decrypting fetches the one-time key; the note is decrypted in this browser.</p>
     </section>
 
     <section class="card stack" data-share-result aria-labelledby="plaintext-title" hidden>

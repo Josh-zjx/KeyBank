@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 	"time"
@@ -8,7 +9,7 @@ import (
 
 func TestRecordJSONRoundTrip(t *testing.T) {
 	original := Record{
-		PrivPEM:   "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
+		Secret:    []byte("0123456789abcdef0123456789abcdef"),
 		CreatedAt: time.Now().Truncate(time.Millisecond),
 	}
 
@@ -22,8 +23,8 @@ func TestRecordJSONRoundTrip(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	if got.PrivPEM != original.PrivPEM {
-		t.Errorf("PrivPEM: got %q, want %q", got.PrivPEM, original.PrivPEM)
+	if !bytes.Equal(got.Secret, original.Secret) {
+		t.Errorf("Secret: got %q, want %q", got.Secret, original.Secret)
 	}
 	if !got.CreatedAt.Equal(original.CreatedAt) {
 		t.Errorf("CreatedAt: got %v, want %v", got.CreatedAt, original.CreatedAt)

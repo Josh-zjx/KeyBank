@@ -22,6 +22,7 @@
   </header>
   <main
     class="shell"
+    data-api-base-url="{{.APIBaseURL}}"
     data-page="{{.Page}}"
     data-share-id="{{.ShareID}}"
     data-autohide-seconds="{{.AutoHideSeconds}}"
@@ -39,13 +40,13 @@
     <p><strong>KeyBank keeps the key, not the message.</strong> No accounts, no cookies, no analytics.</p>
     <p>Open source and small enough to audit in an afternoon — <a href="https://github.com/josh-zjx/keybank" rel="noreferrer noopener">read the code</a>.</p>
   </footer>
-  {{range .VendorScripts}}<script defer src="{{.Src}}" integrity="{{.Integrity}}" crossorigin="anonymous"></script>{{end}}
+  {{if eq .Page "create"}}<script defer src="/static/qrcode.js" integrity="sha384-ahLw45Nl1X/zUAno5v8A1m7qYEzDIOrQtPeIGkG/a+vFi9BC17OhLEhzDJZUHqN2" crossorigin="anonymous"></script>{{end}}
   {{if .ScriptPath}}<script type="module" src="{{.ScriptPath}}"></script>{{end}}
 </body>
 </html>
 {{end}}
 
-{{/* The ledger lists every request this page sends to KeyBank, exactly as sent. app.js fills it in. */}}
+{{/* The ledger lists API requests with passphrases redacted. app.js fills it in. */}}
 {{define "ledger"}}
 <aside class="ledger-panel" aria-labelledby="ledger-title">
   <div class="ledger-head">
@@ -53,7 +54,7 @@
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       What KeyBank sees
     </h2>
-    <p class="hint">Every request this page sends to the server, exactly as sent.</p>
+    <p class="hint">API requests and responses. Passphrases are redacted from this display.</p>
   </div>
   <ol class="ledger" data-ledger aria-live="polite"></ol>
   <p class="ledger-foot">
@@ -79,7 +80,7 @@
   <dl class="anatomy-parts">
     <div class="anatomy-part anatomy-server">
       <dt><code data-anatomy-path></code></dt>
-      <dd><strong>Sent to KeyBank.</strong> Only the key’s ID, which unlocks nothing on its own.</dd>
+      <dd><strong>Sent to KeyBank.</strong> Only the key’s ID. The encrypted note stays in the fragment.</dd>
     </div>
     <div class="anatomy-part anatomy-local">
       <dt><code data-anatomy-fragment></code></dt>

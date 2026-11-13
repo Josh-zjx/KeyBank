@@ -1,8 +1,8 @@
 {{define "create-body"}}
 <header class="hero">
-  <p class="eyebrow">Zero-knowledge note sharing</p>
+  <p class="eyebrow">Client-side note encryption</p>
   <h1>{{.Title}}</h1>
-  <p class="lead">KeyBank keeps the <em>key</em>, not the message. Your note is encrypted in this browser and travels inside the link itself. The server holds only a one-time key, and destroys it the moment the link is opened.</p>
+  <p class="lead">KeyBank keeps the <em>key</em>, not the message. Your note is encrypted in this browser and travels inside the link itself. The server holds only a one-time key, and destroys it when the key is fetched.</p>
 </header>
 
 <div class="workspace">
@@ -19,6 +19,20 @@
           </div>
           <textarea id="message" rows="8" placeholder="A password, a recovery code, a private note…" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
           <p class="field-meta" data-message-meta>Short notes make short links.</p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="key-type">Key type</label>
+          <select id="key-type">
+            <option value="ecc">ECC (X25519)</option>
+            <option value="aes256">AES-256</option>
+          </select>
+          <p class="hint">Both encrypt your note locally. ECC uses a public key; AES uses a fresh symmetric key.</p>
+        </div>
+        <div class="field">
+          <label class="field-label" for="passphrase">Passphrase (optional)</label>
+          <input id="passphrase" type="password" autocomplete="new-password" spellcheck="false">
+          <p class="hint">Share this separately. It is sent to the API over TLS and never included in the link.</p>
         </div>
 
         <fieldset class="field">
@@ -53,7 +67,7 @@
             <svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>
             Generate link
           </button>
-          <p id="create-status" class="status" data-state="idle" role="status">Only the expiry you pick is sent to KeyBank.</p>
+          <p id="create-status" class="status" data-state="idle" role="status">Key type, expiry, and an optional passphrase are sent to the API. Your message stays here.</p>
         </div>
       </form>
     </section>
@@ -111,18 +125,18 @@
   <ol class="steps">
     <li class="step">
       <span class="step-icon step-server"><svg class="icon" aria-hidden="true"><use href="#i-key"/></svg></span>
-      <h3>KeyBank mints a key pair</h3>
-      <p>Your browser asks for a fresh RSA-4096 key pair. KeyBank stores the private half and hands back the public half. All it learns is how long to keep the key.</p>
+      <h3>KeyBank creates a key</h3>
+      <p>Your browser requests a fresh X25519 key pair or AES-256 key, with an expiry and optional passphrase. ECC creation returns the public half; AES creation returns the symmetric key.</p>
     </li>
     <li class="step">
       <span class="step-icon step-local"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg></span>
       <h3>Your browser seals the note</h3>
-      <p>The note is encrypted with a random AES-256-GCM key, which is in turn locked with the public key. Both go into the link after the <code>#</code>, the part a browser never sends to a server.</p>
+      <p>Your browser encrypts with AES-256-GCM, deriving a key through X25519 for ECC mode. The ciphertext and public metadata go after the <code>#</code>, which browsers never send to a server.</p>
     </li>
     <li class="step">
       <span class="step-icon step-burn"><svg class="icon" aria-hidden="true"><use href="#i-flame"/></svg></span>
       <h3>The key is used once, then gone</h3>
-      <p>Opening the link fetches the private key, and KeyBank deletes it in the same atomic step. The recipient’s browser decrypts the note locally, and the link never works again.</p>
+      <p>Decrypting fetches the one-time key, and KeyBank deletes it in the same atomic step. It arrives directly over TLS after any passphrase is checked. Anyone who records decrypted API traffic can obtain the key. The note is decrypted locally, and the link never works again.</p>
     </li>
   </ol>
 

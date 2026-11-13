@@ -1,5 +1,5 @@
 import { fetchKey } from "./api.js";
-import { decryptMessage } from "./crypto.js";
+import { validateCryptoForFragment, decryptMessage } from "./crypto.js";
 import { parseFragment } from "./link.js";
 import { copyText, plural, renderAnatomy, setStatus } from "./ui.js";
 
@@ -69,6 +69,8 @@ export function initSharePage(root, ledger) {
   const button = card.querySelector("[data-decrypt-button]");
   const status = card.querySelector("#share-status");
   const shareID = root.dataset.shareId;
+  const passphraseField = card.querySelector("[data-passphrase-field]");
+  const passphraseInput = card.querySelector("#fetch-passphrase");
   const autoHideSeconds = Number(root.dataset.autohideSeconds) || 60;
   const readyMessage = status.textContent;
 
@@ -83,6 +85,10 @@ export function initSharePage(root, ledger) {
     renderAnatomy(card, window.location.href);
     try {
       fragment = parseFragment(window.location.hash);
+      if (!/^[a-f0-9]{32}$/.test(shareID)) {
+        throw new Error("This share link has an invalid key ID.");
+      }
+      passphraseField.hidden = !fragment.protectedKey;
       setState("ready");
       setStatus(status, readyMessage, "idle");
     } catch (error) {
@@ -105,26 +111,43 @@ export function initSharePage(root, ledger) {
     }
 
     setState("working");
-    setStatus(status, "Fetching the one-time private key…", "working");
 
-    let privPem;
+    // Validate crypto support and peer keys before spending the API key.
     try {
-      privPem = await fetchKey(ledger, shareID);
+      await validateCryptoForFragment(fragment);
     } catch (error) {
-      setState("ready");
+      setState("invalid");
       setStatus(status, error.message, "error");
       return;
     }
 
-    if (privPem === null) {
+    setStatus(status, "Fetching the one-time key…", "working");
+
+    let reply;
+    try {
+      reply = await fetchKey(ledger, shareID, passphraseInput.value);
+    } catch (error) {
+      setState("ready");
+      if (error.code === "invalid_passphrase") {
+        passphraseField.hidden = false;
+        passphraseInput.focus();
+      }
+      setStatus(status, error.message, "error");
+      return;
+    }
+
+    if (reply === null) {
       setState("spent");
       setStatus(status, "This note has already been opened or expired. If you did not open it yourself, someone else may have: ask the sender for a new link.", "error");
       return;
     }
 
+    passphraseInput.value = "";
+    passphraseField.hidden = true;
+
     let plaintext;
     try {
-      plaintext = await decryptMessage(privPem, fragment.wrapped, fragment.iv, fragment.ct);
+      plaintext = await decryptMessage(reply, fragment);
     } catch {
       setState("spent");
       setStatus(status, "Unable to decrypt this link. The encrypted fragment may be corrupted or tampered with.", "error");
@@ -133,6 +156,6 @@ export function initSharePage(root, ledger) {
 
     setState("open");
     reveal(root, plaintext, autoHideSeconds, status);
-    setStatus(status, "Plaintext decrypted locally. The private key has already been destroyed server-side.", "success");
+    setStatus(status, "Plaintext decrypted locally. The key has already been destroyed server-side.", "success");
   });
 }

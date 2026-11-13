@@ -41,8 +41,8 @@ test("lists each API request in the ledger exactly as sent", async ({ page }) =>
   await page.getByRole("button", { name: "Generate link" }).click();
   await expect(page.locator("#create-status")).toHaveText(/Link generated\./);
 
-  const create = requests.find(({ method, url }) => method === "POST" && url.endsWith("/api/keys"));
-  const entry = page.locator("[data-ledger] .ledger-entry").filter({ hasText: "/api/keys" });
+  const create = requests.find(({ method, url }) => method === "POST" && url.endsWith("/api/v1/keys"));
+  const entry = page.locator("[data-ledger] .ledger-entry").filter({ hasText: "/api/v1/keys" });
   await expect(entry.locator("[data-sent]")).toHaveText(create.body);
   await expect(entry.locator("[data-received]")).toHaveText(/^201 /);
   await expect(page.locator("[data-result-expiry]")).toContainText("1 hour");
@@ -54,7 +54,7 @@ test("refuses to spend the key when the link has no fragment", async ({ page }) 
 
   await expect(page.locator("#share-status")).toHaveText(/missing its encrypted fragment/);
   await expect(page.getByRole("button", { name: "Decrypt" })).toBeDisabled();
-  expect(requests.some(({ url }) => url.includes("/api/keys/"))).toBe(false);
+  expect(requests.some(({ url }) => url.includes("/api/v1/keys/"))).toBe(false);
 });
 
 test("explains a spent link and retires the decrypt button", async ({ browser }) => {
@@ -77,4 +77,34 @@ test("explains a spent link and retires the decrypt button", async ({ browser })
   await expect(second.locator("#share-status")).toHaveText(/already been opened or expired/);
   await expect(second.locator("[data-ledger]")).toContainText("404");
   await expect(second.getByRole("button", { name: "Decrypt" })).toBeHidden();
+});
+
+test("fetches the private key directly through API v1", async ({ browser }) => {
+  const sender = await browser.newPage();
+  await sender.goto("/");
+  await sender.getByLabel("Message").fill(secret);
+  await sender.getByRole("button", { name: "Generate link" }).click();
+  await expect(sender.locator("#create-status")).toHaveText(/Link generated\./);
+  const shareURL = await sender.locator("[data-share-url]").inputValue();
+  const recipient = await browser.newPage();
+  await recipient.goto(shareURL);
+  const pending = recipient.waitForResponse((response) => response.url().endsWith("/fetch"));
+  await recipient.getByRole("button", { name: "Decrypt" }).click();
+  const response = await pending;
+  const reply = await response.json();
+  expect(response.request().postData()).toBe("{}");
+  expect(Object.keys(reply).sort()).toEqual(["id", "private_key", "public_key", "type"]);
+  expect(reply.private_key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(reply.type).toBe("ecc");
+  await expect(recipient.locator("[data-share-plaintext]")).toHaveText(secret);
+  await expect(recipient.locator("[data-ledger]")).toContainText("200 · the key, now deleted");
+});
+
+test("refuses a version 1 link without spending the key", async ({ page }) => {
+  const requests = recordRequests(page);
+  await page.goto("/share/0123456789abcdef0123456789abcdef#v=1&w=AAAA&i=AAAA&c=AAAA");
+
+  await expect(page.locator("#share-status")).toHaveText(/older version of KeyBank/);
+  await expect(page.getByRole("button", { name: "Decrypt" })).toBeDisabled();
+  expect(requests.some(({ url }) => url.includes("/api/v1/keys/"))).toBe(false);
 });

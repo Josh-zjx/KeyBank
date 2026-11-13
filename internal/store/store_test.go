@@ -1,244 +1,148 @@
-package store
+package store_test
 
 import (
+	"bytes"
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/josh-zjx/keybank/handlers"
+	"github.com/josh-zjx/keybank/internal/store"
 )
 
-// --- MemKeyStore tests ---
-
-func TestMemStoreRoundTrip(t *testing.T) {
-	store := NewMemKeyStore()
-	rec := Record{PrivPEM: "priv-pem-data", CreatedAt: time.Now()}
-
-	id, err := store.Save(rec, time.Hour)
-	if err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	got, err := store.Load(id)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if got == nil {
-		t.Fatal("Load returned nil, want record")
-	}
-	if got.PrivPEM != rec.PrivPEM {
-		t.Errorf("PrivPEM: got %q, want %q", got.PrivPEM, rec.PrivPEM)
-	}
-}
-
-func TestMemStoreIsOneTime(t *testing.T) {
-	store := NewMemKeyStore()
-	id, _ := store.Save(Record{PrivPEM: "pem", CreatedAt: time.Now()}, time.Hour)
-
-	first, err := store.Load(id)
-	if err != nil || first == nil {
-		t.Fatalf("first Load: got (%v, %v), want non-nil", first, err)
-	}
-
-	second, err := store.Load(id)
-	if err != nil {
-		t.Fatalf("second Load error: %v", err)
-	}
-	if second != nil {
-		t.Errorf("second Load should return nil, got %+v", second)
-	}
-}
-
-func TestMemStoreTTLExpiry(t *testing.T) {
-	store := NewMemKeyStore()
-	id, _ := store.Save(Record{PrivPEM: "pem", CreatedAt: time.Now()}, 10*time.Millisecond)
-
-	time.Sleep(20 * time.Millisecond)
-
-	got, err := store.Load(id)
-	if err != nil {
-		t.Fatalf("Load after expiry: %v", err)
-	}
-	if got != nil {
-		t.Errorf("Load after TTL expiry: got %+v, want nil", got)
-	}
-}
-
-func TestMemStoreConcurrentLoad(t *testing.T) {
-	store := NewMemKeyStore()
-	id, _ := store.Save(Record{PrivPEM: "pem", CreatedAt: time.Now()}, time.Hour)
-
-	const goroutines = 20
-	var wins atomic.Int32
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
-
-	for range goroutines {
-		go func() {
-			defer wg.Done()
-			rec, _ := store.Load(id)
-			if rec != nil {
-				wins.Add(1)
+func TestStoreContract(t *testing.T) {
+	for _, name := range []string{"mem", "redis"} {
+		t.Run(name, func(t *testing.T) {
+			var backend handlers.Store = store.NewMemKeyStore()
+			expire := func() { time.Sleep(100 * time.Millisecond) }
+			if name == "redis" {
+				mr := miniredis.RunT(t)
+				r := store.NewRedisKeyStore(mr.Addr())
+				defer r.Close()
+				backend = r
+				expire = func() { mr.FastForward(time.Hour) }
 			}
-		}()
-	}
-	wg.Wait()
-
-	if wins.Load() != 1 {
-		t.Errorf("exactly 1 goroutine should win the Load, got %d", wins.Load())
+			ctx := context.Background()
+			t.Run("immutable snapshots and conditional consume", func(t *testing.T) {
+				original := []byte(`{"secret":"unchanged"}`)
+				id, err := backend.Save(ctx, original, time.Hour)
+				if err != nil {
+					t.Fatal(err)
+				}
+				original[0] = 'X'
+				snapshot, err := backend.Get(ctx, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(snapshot, []byte(`{"secret":"unchanged"}`)) {
+					t.Fatal("save aliased caller memory")
+				}
+				snapshot[0] = 'X'
+				snapshot, _ = backend.Get(ctx, id)
+				if snapshot[0] != '{' {
+					t.Fatal("read aliased stored bytes")
+				}
+				if ok, err := backend.Consume(ctx, id, []byte("wrong snapshot")); err != nil || ok {
+					t.Fatal("consumed mismatched snapshot")
+				}
+				if ok, err := backend.Consume(ctx, id, snapshot); err != nil || !ok {
+					t.Fatal("failed to consume snapshot")
+				}
+				if got, err := backend.Get(ctx, id); err != nil || got != nil {
+					t.Fatal("key still present")
+				}
+				if ok, err := backend.Consume(ctx, id, snapshot); err != nil || ok {
+					t.Fatal("consumed twice")
+				}
+			})
+			t.Run("TTL does not refresh on reads or failed consumes", func(t *testing.T) {
+				id, err := backend.Save(ctx, []byte("expiring"), 40*time.Millisecond)
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapshot, _ := backend.Get(ctx, id)
+				if snapshot == nil {
+					t.Fatal("expired too early")
+				}
+				_, _ = backend.Consume(ctx, id, []byte("incorrect"))
+				expire()
+				if ok, err := backend.Consume(ctx, id, snapshot); err != nil || ok {
+					t.Fatal("consumed after expiry")
+				}
+				if got, _ := backend.Get(ctx, id); got != nil {
+					t.Fatal("read after expiry")
+				}
+			})
+			t.Run("exactly one concurrent consumer", func(t *testing.T) {
+				id, err := backend.Save(ctx, []byte("one-time"), time.Hour)
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapshot, _ := backend.Get(ctx, id)
+				var wg sync.WaitGroup
+				var wins, failures atomic.Int32
+				for i := 0; i < 30; i++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						ok, err := backend.Consume(ctx, id, snapshot)
+						if err != nil {
+							failures.Add(1)
+						}
+						if ok {
+							wins.Add(1)
+						}
+					}()
+				}
+				wg.Wait()
+				if wins.Load() != 1 || failures.Load() != 0 {
+					t.Fatalf("wins %d errors %d", wins.Load(), failures.Load())
+				}
+			})
+			t.Run("cancelled context", func(t *testing.T) {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				if _, err := backend.Save(cancelled, []byte("x"), time.Hour); err == nil {
+					t.Fatal("ignored cancellation")
+				}
+				if _, err := backend.Get(cancelled, "id"); err == nil {
+					t.Fatal("ignored cancellation")
+				}
+				if _, err := backend.Consume(cancelled, "id", nil); err == nil {
+					t.Fatal("ignored cancellation")
+				}
+			})
+		})
 	}
 }
 
-// --- RedisKeyStore tests (via miniredis) ---
-
-func TestRedisStoreRoundTrip(t *testing.T) {
+func TestRedisNamespaceAndErrors(t *testing.T) {
 	mr := miniredis.RunT(t)
-	store := NewRedisKeyStore(mr.Addr())
-
-	rec := Record{PrivPEM: "redis-priv-pem", CreatedAt: time.Now().Truncate(time.Second)}
-	id, err := store.Save(rec, time.Hour)
+	r := store.NewRedisKeyStore(mr.Addr())
+	defer r.Close()
+	ctx := context.Background()
+	id, err := r.Save(ctx, []byte("value"), time.Hour)
 	if err != nil {
-		t.Fatalf("Save: %v", err)
+		t.Fatal(err)
 	}
-
-	got, err := store.Load(id)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
+	if !mr.Exists("keybank:v1:keys:"+id) || mr.Exists(id) {
+		t.Fatal("wrong namespace")
 	}
-	if got == nil {
-		t.Fatal("Load returned nil, want record")
+	mr.Set("legacy-id", "old record")
+	if got, err := r.Get(ctx, "legacy-id"); err != nil || got != nil {
+		t.Fatal("legacy record exposed")
 	}
-	if got.PrivPEM != rec.PrivPEM {
-		t.Errorf("PrivPEM: got %q, want %q", got.PrivPEM, rec.PrivPEM)
+	_ = r.Close()
+	if _, err := r.Save(ctx, []byte("x"), time.Hour); err == nil {
+		t.Fatal("save swallowed error")
 	}
-}
-
-func TestRedisStoreIsOneTime(t *testing.T) {
-	mr := miniredis.RunT(t)
-	store := NewRedisKeyStore(mr.Addr())
-
-	id, _ := store.Save(Record{PrivPEM: "pem", CreatedAt: time.Now()}, time.Hour)
-
-	first, err := store.Load(id)
-	if err != nil || first == nil {
-		t.Fatalf("first Load: got (%v, %v), want non-nil", first, err)
+	if _, err := r.Get(ctx, id); err == nil {
+		t.Fatal("get swallowed error")
 	}
-
-	second, err := store.Load(id)
-	if err != nil {
-		t.Fatalf("second Load error: %v", err)
-	}
-	if second != nil {
-		t.Errorf("second Load should return nil, got %+v", second)
-	}
-}
-
-func TestRedisStoreTTLHonored(t *testing.T) {
-	mr := miniredis.RunT(t)
-	store := NewRedisKeyStore(mr.Addr())
-
-	id, err := store.Save(Record{PrivPEM: "pem", CreatedAt: time.Now()}, 5*time.Second)
-	if err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	// Advance miniredis clock past the TTL.
-	mr.FastForward(6 * time.Second)
-
-	got, err := store.Load(id)
-	if err != nil {
-		t.Fatalf("Load after TTL: %v", err)
-	}
-	if got != nil {
-		t.Errorf("Load after TTL expiry: got %+v, want nil", got)
-	}
-}
-
-func TestRedisStoreNotFound(t *testing.T) {
-	mr := miniredis.RunT(t)
-	store := NewRedisKeyStore(mr.Addr())
-
-	got, err := store.Load("no-such-id")
-	if err != nil {
-		t.Fatalf("Load non-existent key: %v", err)
-	}
-	if got != nil {
-		t.Errorf("Load non-existent: got %+v, want nil", got)
-	}
-}
-
-func TestRedisStoreLoadCorruptedJSON(t *testing.T) {
-	mr := miniredis.RunT(t)
-	store := NewRedisKeyStore(mr.Addr())
-
-	// Inject a raw non-JSON value so Unmarshal returns an error.
-	if err := mr.Set("corrupt-id", "not-valid-json"); err != nil {
-		t.Fatalf("miniredis.Set: %v", err)
-	}
-
-	_, err := store.Load("corrupt-id")
-	if err == nil {
-		t.Error("Load on corrupted JSON: expected error, got nil")
-	}
-}
-
-func TestRedisStoreSaveConnectionError(t *testing.T) {
-	mr := miniredis.RunT(t)
-	addr := mr.Addr()
-	store := NewRedisKeyStore(addr)
-	mr.Close()
-
-	_, err := store.Save(Record{PrivPEM: "pem", CreatedAt: time.Now()}, time.Hour)
-	if err == nil {
-		t.Error("Save with closed Redis: expected error, got nil")
-	}
-}
-
-func TestRedisStoreLoadConnectionError(t *testing.T) {
-	mr := miniredis.RunT(t)
-	addr := mr.Addr()
-	store := NewRedisKeyStore(addr)
-
-	// Save while Redis is up, then close it before Load.
-	id, _ := store.Save(Record{PrivPEM: "pem", CreatedAt: time.Now()}, time.Hour)
-	mr.Close()
-
-	_, err := store.Load(id)
-	if err == nil {
-		t.Error("Load with closed Redis: expected error, got nil")
-	}
-}
-
-// --- StoreAdapter tests ---
-
-func TestStoreAdapterRoundTrip(t *testing.T) {
-	ks := NewMemKeyStore()
-	adapter := &StoreAdapter{Ks: ks}
-
-	privPEM := []byte("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n")
-	id, err := adapter.Save(privPEM, time.Hour)
-	if err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	got, err := adapter.Load(id)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if string(got) != string(privPEM) {
-		t.Errorf("Load: got %q, want %q", got, privPEM)
-	}
-}
-
-func TestStoreAdapterNotFound(t *testing.T) {
-	adapter := &StoreAdapter{Ks: NewMemKeyStore()}
-
-	got, err := adapter.Load("no-such-id")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != nil {
-		t.Errorf("got %q, want nil", got)
+	if ok, err := r.Consume(ctx, id, []byte("value")); err == nil || ok {
+		t.Fatal("consume swallowed error")
 	}
 }

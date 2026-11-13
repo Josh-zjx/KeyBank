@@ -2,21 +2,21 @@
 
 ## Project Structure & Module Organization
 
-KeyBank is a Go 1.22 service. The root `main` package contains startup, configuration, HTTP assembly, storage, and rate limiting. Request handlers and middleware live in `handlers/`; related implementations are under `internal/store/` and `internal/rate/`. HTML templates are in `templates/`, while browser JavaScript and CSS are in `static/`. Unit tests sit beside Go source as `*_test.go`; Playwright tests live in `playwright/`. Deployment files include `Dockerfile`, `docker-compose.yml`, `Caddyfile`, and `docs/deploy.md`. Do not edit dependencies in `vendor/`.
+KeyBank retains Go 1.24 source compatibility and uses Go 1.27.4 for container and CI builds, with independent API (`cmd/keybank`) and demo (`cmd/demo`) executables. `handlers/` implements API v1; `internal/store/` is the single persistence implementation. `internal/demo/` embeds its own `templates/` and `static/` assets. `internal/service/` shares process startup and configuration. `internal/rate/` remains unused legacy code. Tests sit beside Go source; browser tests are in `playwright/`. Do not edit dependencies in `vendor/`.
 
 ## Build, Test, and Development Commands
 
-- `go run .` starts the service on port 14000; use `KEYBANK_STORE=mem go run .` to develop without Redis.
+- `go run ./cmd/keybank` starts the API on port 14000; use `KEYBANK_STORE=mem` without Redis. Run `go run ./cmd/demo` separately on port 14001.
 - `go build ./...` compiles every Go package.
 - `go test ./...` runs all unit and integration tests.
 - `go test ./... -race -cover` matches the primary CI test check.
 - `npm ci` installs the pinned Playwright tooling.
-- `npm run playwright:install` installs Chromium; `npm run test:e2e` runs browser tests with a temporary in-memory server.
-- `docker compose up --build` runs the application with Redis.
+- `npm run playwright:install` installs Chromium; `npm run test:e2e` runs browser tests with separate temporary API and demo servers.
+- `docker compose up --build` runs the API, demo, and Redis.
 
 ## Coding Style & Naming Conventions
 
-Format Go with `gofmt`; use tabs, idiomatic mixed-cap identifiers, and short lower-case package names. Document exported APIs and handle errors at their boundary. JavaScript uses two-space indentation, semicolons, and `camelCase`. Prefer small consumer-side interfaces, as shown by `handlers.Store`, and keep memory and Redis implementations behaviorally aligned.
+Format Go with `gofmt`; use tabs, idiomatic mixed-cap identifiers, and short lower-case package names. Document exported APIs and handle errors at their boundary. Always use structured logging when implementing logging functionality. JavaScript uses two-space indentation, semicolons, and `camelCase`. Prefer small consumer-side interfaces, as shown by `handlers.Store`, and keep memory and Redis implementations behaviorally aligned.
 
 ## Testing Guidelines
 
@@ -28,4 +28,4 @@ History favors concise, imperative subjects such as `Implement milestone 5 clien
 
 ## Security & Configuration
 
-Copy settings from `.env.example`; never commit `.env` files or secrets. Preserve the core privacy model: plaintext and ciphertext stay client-side, the server stores only private keys, and reads consume keys atomically. Enable `TRUST_XFF` only behind a trusted proxy.
+Copy settings from `.env.example`; never commit `.env` files or secrets. Preserve the core model: note plaintext and ciphertext stay client-side; the API stores private/symmetric keys and optional salted verifiers. Fetch authenticates before conditional atomic consumption. Keys and passphrases travel directly in JSON over TLS; never log bodies or claim recorded decrypted traffic is safe. Update `docs/protocol.md` and `docs/openapi.yaml` for API or crypto changes. Passphrases never belong in links. No rate limiting is wired into either service.
